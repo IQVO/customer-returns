@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/IQVO/customer-returns/internal/adapters/outbound/postgres"
-	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/application/ports"
+	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/domain/network"
 	"github.com/IQVO/customer-returns/internal/domain/returnauthorization"
 	"github.com/IQVO/customer-returns/internal/testing/pgtest"
@@ -114,8 +114,8 @@ func TestViewRepositoriesRoundTrip(t *testing.T) {
 	if err := groups.SaveGroup(ctx, network.OrderGroup{
 		OrderID: "ord-1", GroupNo: 1, Status: network.GroupShipped,
 		DestinationPostalPrefix: "013", WitnessNodeID: "node-fc-1",
-		Lines: []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 2}},
-		UpdatedAt:               time.Now().UTC(),
+		Lines:     []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 2}},
+		UpdatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("SaveGroup: %v", err)
 	}

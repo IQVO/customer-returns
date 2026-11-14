@@ -86,8 +86,8 @@ func (w *world) authorize(cents int) error {
 func (w *world) outcome(restockable int, item, node string) error {
 	err := w.feed(w.vendor, "com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", w.lastID, map[string]any{
 		"authorizationId": w.lastID, "nodeId": node,
-		"receivedAt":      start.Add(96 * time.Hour),
-		"lines":           []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable}},
+		"receivedAt": start.Add(96 * time.Hour),
+		"lines":      []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable}},
 	})
 	if err != nil {
 		return err

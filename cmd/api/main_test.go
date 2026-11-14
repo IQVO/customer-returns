@@ -13,8 +13,8 @@ func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)
 
 func baseEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_URL": "postgres://u:p@h:5432/customer-returns",
-		"KAFKA_BROKERS":          "b1:9092, b2:9092",
+		"DATABASE_URL":            "postgres://u:p@h:5432/customer-returns",
+		"KAFKA_BROKERS":           "b1:9092, b2:9092",
 		"ORDER_CONSUMER_GROUP":    "g-order",
 		"TOPOLOGY_CONSUMER_GROUP": "g-topology",
 		"SOURCING_CONSUMER_GROUP": "g-sourcing",

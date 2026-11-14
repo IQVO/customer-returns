@@ -200,9 +200,9 @@ type service struct {
 
 // env is the environment a deployment sets.
 type env struct {
-	dbURL    string
-	brokers  []string
-	addr     string
+	dbURL     string
+	brokers   []string
+	addr      string
 	labelsURL string
 }
 

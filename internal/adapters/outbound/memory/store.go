@@ -31,7 +31,7 @@ var (
 	_ ports.AuthorizationRepository = (*AuthorizationRepository)(nil)
 	_ ports.GroupViewRepository     = (*GroupViewRepository)(nil)
 	_ ports.NetworkViewRepository   = (*NetworkViewRepository)(nil)
-	_ ports.OutcomeFacts         = (*OutcomeFacts)(nil)
+	_ ports.OutcomeFacts            = (*OutcomeFacts)(nil)
 	_ ports.LabelIssuer             = (*LabelIssuer)(nil)
 	_ ports.ProcessedEvents         = (*Inbox)(nil)
 	_ ports.EventOutbox             = (*Outbox)(nil)
