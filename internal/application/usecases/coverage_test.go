@@ -169,7 +169,7 @@ func TestListCursorRoundTrip(t *testing.T) {
 	}
 	page2, err := f.svc.ListReturnAuthorizations(context.Background(), requests.ListAuthorizations{
 		OrderID:        "ord-1",
-		AfterCreatedAt: page.Items[0].AuthorizedAt, AfterID: returnauthorization.ID(page.Items[0].AuthorizationID), Limit: 10,
+		AfterCreatedAt: page.Items[0].AuthorizedAt, AfterID: page.Items[0].AuthorizationID, Limit: 10,
 	})
 	if err != nil {
 		t.Fatalf("second page: %v", err)
@@ -189,7 +189,7 @@ func TestExpiredAuthorizationRefusesLabelAndCancelsOnTouch(t *testing.T) {
 	f := newFixture(t)
 	f.placeOrder(t, "ord-1")
 	v := f.authorize(t, "ord-1", 1, 2000)
-	id := returnauthorization.ID(v.AuthorizationID)
+	id := v.AuthorizationID
 	f.clock.Set(t0.Add(returnauthorization.ReturnAuthorizationTTL + time.Minute))
 	if _, err := f.svc.IssueLabel(context.Background(), requests.IssueLabel{
 		AuthorizationID: id, PackageNo: 1,
@@ -216,9 +216,9 @@ func TestOutcomeConsumerPaths(t *testing.T) {
 	f := newFixture(t)
 	f.placeOrder(t, "ord-1")
 	v := f.authorize(t, "ord-1", 1, 2000)
-	id := returnauthorization.ID(v.AuthorizationID)
+	id := v.AuthorizationID
 	v2 := f.authorize(t, "ord-1", 2, 2000)
-	id2 := returnauthorization.ID(v2.AuthorizationID)
+	id2 := v2.AuthorizationID
 
 	// An unknown authorization still records an all-unexpected fact.
 	if err := f.svc.OnOutcomeSubmitted(context.Background(), "evt-out-0", requests.OutcomeSubmitted{
