@@ -3,7 +3,7 @@ id: bounded-context-canvas
 title: Bounded Context Canvas
 sidebar_label: Bounded Context Canvas
 sidebar_position: 2
-description: "The ddd-crew Bounded Context Canvas for Seller Inbound: purpose, roles, every inbound and outbound message, decisions and open questions."
+description: "The ddd-crew Bounded Context Canvas for Customer Returns: purpose, roles, every inbound and outbound message, decisions and open questions."
 ---
 
 # Bounded Context Canvas
@@ -16,7 +16,7 @@ flowchart TB
     AGT["agents"]
     NT["node-topology"]
     OA["offer-availability"]
-    SI["seller-inbound"]
+    SI["customer-returns"]
     VC["vendor-connectivity"]
     NP["node-performance"]
     SEL -->|"REST plans, shipments,<br/>cartons, ship"| SI
@@ -33,7 +33,7 @@ Source: `internal/adapters/inbound/{http,kafka,mcp,a2a}`, `internal/adapters/out
 
 ## 1. Name
 
-Seller Inbound (`seller-inbound`, `SI`), tier `partner`, Supporting.
+Customer Returns (`customer-returns`, `SI`), tier `partner`, Supporting.
 
 ## 2. Purpose
 
@@ -107,7 +107,7 @@ discrepancies).
 
 ## 10. Verification metrics
 
-Built: the Tier-2 counter `seller_inbound.shipment.shipped` (attribute `outcome` `shipped` or `rejected`, `reason` the
+Built: the Tier-2 counter `customer_returns.shipment.shipped` (attribute `outcome` `shipped` or `rejected`, `reason` the
 problem slug; [ADR 0008](/docs/adr/0008-fleet-observability-standard)) and the per-seller scorecard
 (`receiptAccuracyRate`, `discrepancyRatePerShipment`, `discrepanciesByKind`, `complianceViolations`, `complianceTier`;
 [ADR 0005](/docs/adr/0005-seller-compliance-scorecard)). Not built: share of cartons whose SSCC was network-issued; time

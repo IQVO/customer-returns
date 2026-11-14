@@ -3,23 +3,23 @@ id: context-map
 title: Context Map
 sidebar_label: Context Map
 sidebar_position: 3
-description: "Seller Inbound's neighbourhood: every upstream and downstream relationship, its pattern and its channel."
+description: "Customer Returns's neighbourhood: every upstream and downstream relationship, its pattern and its channel."
 ---
 
 # Context Map
 
-Following ddd-crew [Context Mapping](https://github.com/ddd-crew/context-mapping). This is seller-inbound's slice of the
+Following ddd-crew [Context Mapping](https://github.com/ddd-crew/context-mapping). This is customer-returns's slice of the
 [network-wide context map](https://iqvo.github.io/warehouse-docs/network/strategic-design/context-map). Arrows point from
 upstream to downstream.
 
-### Upstream: what seller-inbound conforms to
+### Upstream: what customer-returns conforms to
 
 ```mermaid
 flowchart LR
     NT["node-topology<br/>Supporting"]
     OA["offer-availability<br/>Supporting"]
     VC["vendor-connectivity<br/>Supporting"]
-    SI["seller-inbound<br/>Supporting"]
+    SI["customer-returns<br/>Supporting"]
     NT -->|"U to D: CF<br/>Kafka node events"| SI
     OA -->|"U to D: CF<br/>Kafka catalog and packaging"| SI
     VC -->|"U to D: C/S<br/>Kafka InboundReceiptSubmitted"| SI
@@ -27,11 +27,11 @@ flowchart LR
 
 Source: `internal/adapters/inbound/kafka/consumers.go` (topics and types consumed).
 
-### Downstream: who depends on seller-inbound
+### Downstream: who depends on customer-returns
 
 ```mermaid
 flowchart LR
-    SI["seller-inbound<br/>Supporting"]
+    SI["customer-returns<br/>Supporting"]
     VC["vendor-connectivity<br/>Supporting"]
     SEL["sellers<br/>external"]
     AN["analytics<br/>no in-org consumer"]
@@ -57,11 +57,11 @@ read-only MCP server and A2A agent ([API reference](/docs/api-reference)); they 
 | --- | --- | --- | --- | --- | --- |
 | `node-topology` | U → D | Conformist | Kafka `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | A node's status, capabilities and inbound limits are node-topology's facts. Kept in `node_inbound_views`. |
 | `offer-availability` | U → D | Conformist | Kafka `retailnetwork.offer-availability.events` | `CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` | The packaging hierarchy and its GTINs are the catalogue's. Kept in `catalog_pack_levels`. |
-| `vendor-connectivity` | U → D (SI downstream) | Customer/Supplier | Kafka `retailnetwork.vendor-connectivity.events` | `InboundReceiptSubmitted` | The receipt shape is the published language; seller-inbound states what it needs. |
-| `vendor-connectivity` | U → D (SI upstream) | Customer/Supplier | Kafka `retailnetwork.seller-inbound.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | The Vendor API needs the manifest and the closing status; seller-inbound publishes what it needs. |
-| `node-performance` | U → D (SI upstream) | Conformist (node-performance conforms) | Kafka `retailnetwork.seller-inbound.events` | `InboundShipmentShipped` | The shipped instant starts the inbound timeliness metric; node-performance keeps what it needs. |
+| `vendor-connectivity` | U → D (SI downstream) | Customer/Supplier | Kafka `retailnetwork.vendor-connectivity.events` | `InboundReceiptSubmitted` | The receipt shape is the published language; customer-returns states what it needs. |
+| `vendor-connectivity` | U → D (SI upstream) | Customer/Supplier | Kafka `retailnetwork.customer-returns.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | The Vendor API needs the manifest and the closing status; customer-returns publishes what it needs. |
+| `node-performance` | U → D (SI upstream) | Conformist (node-performance conforms) | Kafka `retailnetwork.customer-returns.events` | `InboundShipmentShipped` | The shipped instant starts the inbound timeliness metric; node-performance keeps what it needs. |
 | Sellers (external) | U → D | Open Host Service | REST (seller-facing, no auth) | plans, shipments, cartons, labels | A published, versionable seller API. |
-| Analytics | U → D | Published Language | Kafka `retailnetwork.seller-inbound.analytics` | six analytics-only events | No consumer inside the organisation. |
+| Analytics | U → D | Published Language | Kafka `retailnetwork.customer-returns.analytics` | six analytics-only events | No consumer inside the organisation. |
 | `network-fulfillment` (warehouse-systems fleet) | none | Separate Ways | none | none | The hard boundary: the fleet reads the manifest through the Vendor API of vendor-connectivity only. |
 
 ## Notes on the patterns

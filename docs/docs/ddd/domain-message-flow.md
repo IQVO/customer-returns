@@ -3,7 +3,7 @@ id: domain-message-flow
 title: Domain Message Flow
 sidebar_label: Domain Message Flow
 sidebar_position: 5
-description: "Domain Message Flow diagrams for Seller Inbound: a case-packed shipment end to end, a receipt with a discrepancy, and SSCC issuance."
+description: "Domain Message Flow diagrams for Customer Returns: a case-packed shipment end to end, a receipt with a discrepancy, and SSCC issuance."
 ---
 
 # Domain Message Flow
@@ -25,7 +25,7 @@ sequenceDiagram
     participant S as seller
     participant OA as offer-<br/>availability
     participant NT as node-<br/>topology
-    participant SI as seller-inbound
+    participant SI as customer-returns
     OA->>SI: evt: CatalogItemPackagingDeclared<br/>CASE level holds 12 eaches
     NT->>SI: evt: NodeOperationalProfileDeclared<br/>inbound limits
     S->>SI: cmd: CreateInboundPlan<br/>CASE_PACKED, 36 eaches
@@ -46,7 +46,7 @@ Source: `internal/adapters/inbound/kafka/consumers.go` (the two views), `interna
 sequenceDiagram
     autonumber
     participant S as seller
-    participant SI as seller-inbound
+    participant SI as customer-returns
     participant VC as vendor-<br/>connectivity
     participant V as vendor
     participant NP as node-<br/>performance
@@ -72,7 +72,7 @@ sequenceDiagram
     autonumber
     participant V as vendor
     participant VC as vendor-<br/>connectivity
-    participant SI as seller-inbound
+    participant SI as customer-returns
     V->>VC: submits the receipt<br/>1 MISSING, 1 DAMAGED,<br/>complianceCodes on one
     VC->>SI: evt: InboundReceiptSubmitted
     Note over SI: RecordReceipt<br/>the manifest is not edited
@@ -91,7 +91,7 @@ Source: `internal/domain/inboundshipment/receipt.go` (`RecordReceipt`, `statusDi
 sequenceDiagram
     autonumber
     participant S as seller
-    participant SI as seller-inbound
+    participant SI as customer-returns
     S->>SI: cmd: AddCarton with sscc
     alt valid and unique
         SI-->>S: accepted, label returned

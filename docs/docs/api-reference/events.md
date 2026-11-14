@@ -3,7 +3,7 @@ id: events
 title: Event catalogue
 sidebar_label: Events
 sidebar_position: 2
-description: "The CloudEvents seller-inbound publishes and consumes: types, topics, keys, trigger, consumers and delivery rules."
+description: "The CloudEvents customer-returns publishes and consumes: types, topics, keys, trigger, consumers and delivery rules."
 ---
 
 # Event catalogue
@@ -17,12 +17,12 @@ decoded only in `internal/adapters/kafka/cloudevents`. Field-level payloads are 
 | --- | --- |
 | `specversion` | `1.0` |
 | `id` | a UUID minted once, when the event is encoded into the outbox; a relay retry republishes the same id |
-| `source` | `/retailnetwork/seller-inbound` |
-| `type` | `com.retailnetwork.partner.seller-inbound.<entity>.<EventName>`; entity `seller`, `inboundplan` or `inboundshipment` |
+| `source` | `/retailnetwork/customer-returns` |
+| `type` | `com.retailnetwork.partner.customer-returns.<entity>.<EventName>`; entity `seller`, `inboundplan` or `inboundshipment` |
 | `subject` | the aggregate root id: `sellerId`, `planId` or `shipmentId` (for `SellerComplianceViolationRecorded`, the `sellerId`) |
 | `time` | the instant the fact became true |
 | `datacontenttype` | `application/json` |
-| `dataschema` | `urn:retailnetwork:seller-inbound:<stream>:<EventName>:v1`, stream `events` or `analytics` |
+| `dataschema` | `urn:retailnetwork:customer-returns:<stream>:<EventName>:v1`, stream `events` or `analytics` |
 | Kafka key | the `subject`, so one aggregate's events stay ordered on one partition |
 | Kafka header | `content-type: application/cloudevents+json; charset=UTF-8` |
 
@@ -35,15 +35,15 @@ the in-process outbox relay. Delivery is at-least-once; consumers dedupe on `id`
 
 | Event | Full `type` | Topic | Raised by | Consumers |
 | --- | --- | --- | --- | --- |
-| `SellerOnboarded` | `com.retailnetwork.partner.seller-inbound.seller.SellerOnboarded` | `retailnetwork.seller-inbound.analytics` | `OnboardSeller` | none in the organisation |
-| `SellerSuspended` | `com.retailnetwork.partner.seller-inbound.seller.SellerSuspended` | `retailnetwork.seller-inbound.analytics` | `SuspendSeller` (not when already suspended) | none |
-| `SellerReinstated` | `com.retailnetwork.partner.seller-inbound.seller.SellerReinstated` | `retailnetwork.seller-inbound.analytics` | `ReinstateSeller` (not when already active) | none |
-| `InboundPlanConfirmed` | `com.retailnetwork.partner.seller-inbound.inboundplan.InboundPlanConfirmed` | `retailnetwork.seller-inbound.analytics` | `ConfirmInboundPlan` | none |
-| `InboundShipmentLabelled` | `com.retailnetwork.partner.seller-inbound.inboundshipment.InboundShipmentLabelled` | `retailnetwork.seller-inbound.events` | `LabelShipment` | vendor-connectivity |
-| `InboundShipmentShipped` | `com.retailnetwork.partner.seller-inbound.inboundshipment.InboundShipmentShipped` | `retailnetwork.seller-inbound.events` | `ShipInboundShipment` | vendor-connectivity, node-performance |
-| `InboundShipmentReceived` | `com.retailnetwork.partner.seller-inbound.inboundshipment.InboundShipmentReceived` | `retailnetwork.seller-inbound.events` | `ApplyInboundReceipt`, once, when the shipment closes | vendor-connectivity |
-| `InboundDiscrepancyRecorded` | `com.retailnetwork.partner.seller-inbound.inboundshipment.InboundDiscrepancyRecorded` | `retailnetwork.seller-inbound.analytics` | `ApplyInboundReceipt`, per discrepancy, also while the shipment is `RECEIVING` | none |
-| `SellerComplianceViolationRecorded` | `com.retailnetwork.partner.seller-inbound.seller.SellerComplianceViolationRecorded` | `retailnetwork.seller-inbound.analytics` | `ApplyInboundReceipt`, per distinct compliance code of a carton | none |
+| `SellerOnboarded` | `com.retailnetwork.partner.customer-returns.seller.SellerOnboarded` | `retailnetwork.customer-returns.analytics` | `OnboardSeller` | none in the organisation |
+| `SellerSuspended` | `com.retailnetwork.partner.customer-returns.seller.SellerSuspended` | `retailnetwork.customer-returns.analytics` | `SuspendSeller` (not when already suspended) | none |
+| `SellerReinstated` | `com.retailnetwork.partner.customer-returns.seller.SellerReinstated` | `retailnetwork.customer-returns.analytics` | `ReinstateSeller` (not when already active) | none |
+| `InboundPlanConfirmed` | `com.retailnetwork.partner.customer-returns.inboundplan.InboundPlanConfirmed` | `retailnetwork.customer-returns.analytics` | `ConfirmInboundPlan` | none |
+| `InboundShipmentLabelled` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentLabelled` | `retailnetwork.customer-returns.events` | `LabelShipment` | vendor-connectivity |
+| `InboundShipmentShipped` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentShipped` | `retailnetwork.customer-returns.events` | `ShipInboundShipment` | vendor-connectivity, node-performance |
+| `InboundShipmentReceived` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentReceived` | `retailnetwork.customer-returns.events` | `ApplyInboundReceipt`, once, when the shipment closes | vendor-connectivity |
+| `InboundDiscrepancyRecorded` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundDiscrepancyRecorded` | `retailnetwork.customer-returns.analytics` | `ApplyInboundReceipt`, per discrepancy, also while the shipment is `RECEIVING` | none |
+| `SellerComplianceViolationRecorded` | `com.retailnetwork.partner.customer-returns.seller.SellerComplianceViolationRecorded` | `retailnetwork.customer-returns.analytics` | `ApplyInboundReceipt`, per distinct compliance code of a carton | none |
 
 The routing is `streamFor` in `encoder.go`: the three shipment events other contexts consume go to the events topic;
 every other fact goes to the analytics topic. Creating or cancelling a plan, creating a shipment and adding cartons
@@ -70,12 +70,12 @@ the CloudEvents `id` (`processed_events`).
 | offer-availability | `retailnetwork.offer-availability.events` | `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemPackLevelRetired` | Marks the level inactive. |
 | vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.inboundreceipt.InboundReceiptSubmitted` | Records the receipt on the shipment. |
 
-Failure handling (retry, dead letters, poison messages) is on [Integration](/docs/ecosystem/integration#upstream-what-seller-inbound-consumes).
+Failure handling (retry, dead letters, poison messages) is on [Integration](/docs/ecosystem/integration#upstream-what-customer-returns-consumes).
 
 ## Rules for changing the catalogue
 
 Per `CLAUDE.md`: a new event is a domain struct, an entry in `apis/asyncapi.yaml` and the `type:` line in
 [ADR 0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue), in the same commit. The fleet catalogue test
 (`TestEventCatalogueMatchesContract`) matches `com.warehouse.(wms|wes)` and `com.retailnetwork` types, so it fails the build
-if one of this repository's published `com.retailnetwork.partner.seller-inbound` types is declared in the AsyncAPI file but
+if one of this repository's published `com.retailnetwork.partner.customer-returns` types is declared in the AsyncAPI file but
 missing from ADR 0004. CI `api-lint` runs Spectral on the AsyncAPI file.

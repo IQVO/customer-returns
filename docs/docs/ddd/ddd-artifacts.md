@@ -3,14 +3,14 @@ id: ddd-artifacts
 title: DDD artifacts (ddd-crew)
 sidebar_label: DDD artifacts index
 sidebar_position: 10
-description: "Index of the ddd-crew design pack for seller-inbound: charts, canvases, maps, flows, diagrams and the event catalogue."
+description: "Index of the ddd-crew design pack for customer-returns: charts, canvases, maps, flows, diagrams and the event catalogue."
 ---
 
 # DDD artifacts (ddd-crew)
 
-The strategic and tactical design of `seller-inbound`, drawn with the [ddd-crew](https://github.com/ddd-crew) tools plus
+The strategic and tactical design of `customer-returns`, drawn with the [ddd-crew](https://github.com/ddd-crew) tools plus
 UML and ER diagrams. Every diagram is Mermaid. The pack started from the retail-network design pack in IQVO/warehouse-docs
-(`network/docs/contexts/seller-inbound/`, `origin/main`) and was verified against this repository's code, migrations,
+(`network/docs/contexts/customer-returns/`, `origin/main`) and was verified against this repository's code, migrations,
 contracts and ADRs on `develop`; each page carries a `Source:` line where it states something the code decides.
 
 | Artifact | ddd-crew tool / notation | What it shows |

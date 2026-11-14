@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 import type * as OpenApiPlugin from 'docusaurus-plugin-openapi-docs';
 
 const config: Config = {
-  title: 'Seller Inbound',
+  title: 'Customer Returns',
   tagline:
     'Plan, pack, label and ship seller stock to a vendor node, and reconcile it against the vendor receipt.',
   favicon: 'img/favicon.svg',
@@ -15,10 +15,10 @@ const config: Config = {
   },
 
   url: 'https://iqvo.github.io',
-  baseUrl: '/seller-inbound/',
+  baseUrl: '/customer-returns/',
 
   organizationName: 'IQVO',
-  projectName: 'seller-inbound',
+  projectName: 'customer-returns',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
 
@@ -60,7 +60,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/IQVO/seller-inbound/tree/main/docs/docs/',
+            'https://github.com/IQVO/customer-returns/tree/main/docs/docs/',
           docItemComponent: '@theme/ApiItem',
         },
         blog: false,
@@ -83,7 +83,7 @@ const config: Config = {
         sidebarPath: './sidebarsAdr.ts',
         // Keep the 0001- prefix in URLs/ids so they match the file names.
         numberPrefixParser: false,
-        editUrl: 'https://github.com/IQVO/seller-inbound/tree/main/docs/adr/',
+        editUrl: 'https://github.com/IQVO/customer-returns/tree/main/docs/adr/',
       },
     ],
     [
@@ -92,7 +92,7 @@ const config: Config = {
         id: 'openapi',
         docsPluginId: 'classic',
         config: {
-          'seller-inbound': {
+          'customer-returns': {
             // The single source of truth: the same Spectral-linted spec CI
             // gates on. Never hand-transcribed here.
             specPath: '../apis/openapi.yaml',
@@ -115,9 +115,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Seller Inbound',
+      title: 'Customer Returns',
       logo: {
-        alt: 'Seller Inbound',
+        alt: 'Customer Returns',
         src: 'img/logo.svg',
       },
       items: [
@@ -138,7 +138,7 @@ const config: Config = {
           position: 'left',
         },
         {
-          href: 'https://github.com/IQVO/seller-inbound',
+          href: 'https://github.com/IQVO/customer-returns',
           label: 'GitHub',
           position: 'right',
         },
@@ -160,13 +160,13 @@ const config: Config = {
         {
           title: 'Source',
           items: [
-            {label: 'GitHub repository', href: 'https://github.com/IQVO/seller-inbound'},
-            {label: 'OpenAPI spec', href: 'https://raw.githubusercontent.com/IQVO/seller-inbound/main/apis/openapi.yaml'},
-            {label: 'AsyncAPI spec', href: 'https://raw.githubusercontent.com/IQVO/seller-inbound/main/apis/asyncapi.yaml'},
+            {label: 'GitHub repository', href: 'https://github.com/IQVO/customer-returns'},
+            {label: 'OpenAPI spec', href: 'https://raw.githubusercontent.com/IQVO/customer-returns/main/apis/openapi.yaml'},
+            {label: 'AsyncAPI spec', href: 'https://raw.githubusercontent.com/IQVO/customer-returns/main/apis/asyncapi.yaml'},
           ],
         },
       ],
-      copyright: `Seller Inbound — a warehouse-systems application. Built ${new Date().getFullYear()}. This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.`,
+      copyright: `Customer Returns — a warehouse-systems application. Built ${new Date().getFullYear()}. This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -3,7 +3,7 @@ id: troubleshooting
 title: Troubleshooting
 sidebar_label: Troubleshooting
 sidebar_position: 4
-description: "Symptom, cause, check and fix for seller-inbound: boot errors, readiness, outbox, consumers and dead letters, SSCC, and every REST problem type."
+description: "Symptom, cause, check and fix for customer-returns: boot errors, readiness, outbox, consumers and dead letters, SSCC, and every REST problem type."
 ---
 
 # Troubleshooting
@@ -20,8 +20,8 @@ signals themselves see [Observability](/docs/operations/observability); for rout
 | Exit with `KAFKA_BROKERS is required`, `NODE_CONSUMER_GROUP is required: the consumer always runs on real Kafka` (or the catalog or receipt group), or `SSCC_COMPANY_PREFIX is required` | A mandatory `cmd/api` variable is missing. | Same log line. | Set it. The chart's `config.nodeConsumerGroup`, `config.catalogConsumerGroup`, `config.receiptConsumerGroup`, `config.ssccCompanyPrefix` and `kafka.brokers` must all be non-empty. |
 | Exit with `EVENT_PUBLISHER=log is not supported: this context publishes to real Kafka` or `EVENT_PUBLISHER: unknown value` | Only `kafka` (or unset) is accepted. | `cmd/api/config.go` `parsePublisherMode`. | Unset the variable or set `kafka`. |
 | Exit with an `invalid SSCC configuration` error | `SSCC_COMPANY_PREFIX` is not 6 to 11 digits, or `SSCC_EXTENSION_DIGIT` is not one digit 0..9. | `internal/adapters/outbound/sscc/sscc.go` (`ErrInvalidConfig`). | Correct the value. The prefix must be the network's real GS1 company prefix. |
-| `cmd/a2a` exits naming `A2A_AGENT_URL` | The Agent Card URL is missing, relative or not `http(s)`. | `cmd/a2a/main.go` `validateBootConfig`. | Set an absolute URL, for example `http://seller-inbound-a2a.warehouse-systems.svc.cluster.local:8093/`. |
-| Crash-loop after `retrying` lines (`op=run migrations` or `ping postgres`), then `service exited with error` | Postgres unreachable or the migration failed; the boot retry (`internal/bootretry`, 5 attempts, backoff 1+2+4+8 s) is exhausted and the process refuses to boot. | The last `err` on the `retrying` lines; `kubectl logs --previous`. | Fix the DSN, the Secret `seller-inbound-db` or PgBouncer; the pod restarts into a healthy database. |
+| `cmd/a2a` exits naming `A2A_AGENT_URL` | The Agent Card URL is missing, relative or not `http(s)`. | `cmd/a2a/main.go` `validateBootConfig`. | Set an absolute URL, for example `http://customer-returns-a2a.warehouse-systems.svc.cluster.local:8093/`. |
+| Crash-loop after `retrying` lines (`op=run migrations` or `ping postgres`), then `service exited with error` | Postgres unreachable or the migration failed; the boot retry (`internal/bootretry`, 5 attempts, backoff 1+2+4+8 s) is exhausted and the process refuses to boot. | The last `err` on the `retrying` lines; `kubectl logs --previous`. | Fix the DSN, the Secret `customer-returns-db` or PgBouncer; the pod restarts into a healthy database. |
 | Migration hangs or fails behind PgBouncer | golang-migrate holds a session advisory lock that does not survive a transaction-pooling proxy. | The migration step never finishes. | Set `MIGRATIONS_DATABASE_URL` to a direct DSN (chart `database.migrationsExistingSecretKey`). |
 | `/readyz` answers 503 `{"status":"not_ready"}` | The pod is draining: SIGTERM arrived and the drain gate flipped. | Pod phase `Terminating`; the log line `shutdown: readiness flipped to not-ready`. | Nothing; it is the graceful stop. |
 | `/readyz` answers 503 `dependency-unavailable`, detail `not ready: kafka` (or `postgres`) | The ping or the topic-less Kafka metadata request failed in the last 3 s round. | WARN `readiness: dependency is not ready` with `dependency` and `error`. | Restore Postgres or the broker (`KAFKA_BROKERS`). Writes keep working while only Kafka is down: events queue in `outbox_events`. |

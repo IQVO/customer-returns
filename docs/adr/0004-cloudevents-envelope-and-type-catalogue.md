@@ -26,6 +26,15 @@ The network mandates CloudEvents 1.0 in structured content mode for every Kafka 
 | `returnauthorization.ReturnCompleted` | the first fitting graded outcome | `authorizationId, outcome (RECEIVED), nodeId, lines[]{catalogItemId, ownerRef?, qtyRestockable, qtyUnsellable}, receivedAt` — authorized lines only |
 | `returnauthorization.ReturnCancelled` | `CancelReturn`, lazy expiry | `authorizationId, reason (SHOPPER_REQUESTED \| EXPIRED), cancelledAt` |
 
+#### The type catalogue (machine-checked)
+
+```text
+type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnAuthorized stream: events
+type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnLabelIssued stream: events
+type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCompleted stream: events
+type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCancelled stream: events
+```
+
 ### Omission semantics
 
 Every optional field absent = not applicable, never a default value (KEEP omits `destinationNodeId`; DROP_OFF omits the window; an unknown owner omits `ownerRef`). No event is retracted. Families are idempotent per CloudEvents `id` (the consumers' inbox). No published event carries a unit price, an address, a name, a phone number or free text.

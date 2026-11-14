@@ -1,1 +1,0 @@
-{"parameters":[{"name":"authorizationId","in":"path","required":true,"description":"The return authorization id (`ret-<uuid>`).","schema":{"type":"string","pattern":"^ret-[0-9a-f-]{8,}$"},"example":"ret-0f3a91e2"}]}

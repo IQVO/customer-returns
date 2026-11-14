@@ -3,7 +3,7 @@ id: core-domain-chart
 title: Core Domain Chart
 sidebar_label: Core Domain Chart
 sidebar_position: 1
-description: "Why Seller Inbound is a Supporting subdomain, plotted on the ddd-crew Core Domain Chart."
+description: "Why Customer Returns is a Supporting subdomain, plotted on the ddd-crew Core Domain Chart."
 ---
 
 # Core Domain Chart
@@ -13,20 +13,20 @@ against model complexity (x).
 
 ```mermaid
 quadrantChart
-    title seller-inbound on the Core Domain Chart
+    title customer-returns on the Core Domain Chart
     x-axis Low model complexity --> High model complexity
     y-axis Low business differentiation --> High business differentiation
     quadrant-1 Core
     quadrant-2 Decisive - Short-term Core
     quadrant-3 Supporting
     quadrant-4 Generic
-    seller-inbound context: [0.48, 0.34]
+    customer-returns context: [0.48, 0.34]
     Carton validation: [0.44, 0.30]
     SsccIssuance policy: [0.30, 0.26]
     Receipt reconciliation: [0.40, 0.36]
 ```
 
-Source: the context point (0.48, 0.34) is the model's (`network/model/model.yaml`, `contexts[seller-inbound].chart`);
+Source: the context point (0.48, 0.34) is the model's (`network/model/model.yaml`, `contexts[customer-returns].chart`);
 the three slices are placed on the retail-network pack page. The slices correspond to
 `internal/domain/inboundshipment/carton.go` (carton validation), `internal/adapters/outbound/sscc/sscc.go` (SSCC
 issuance) and `internal/domain/inboundshipment/receipt.go` (receipt reconciliation). The other ten contexts are on the

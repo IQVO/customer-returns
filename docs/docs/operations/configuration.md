@@ -8,7 +8,7 @@ description: "Every environment variable read by cmd/api, cmd/mcp and cmd/a2a: d
 
 # Configuration
 
-`seller-inbound` ships **three binaries** (`cmd/api`, `cmd/mcp`, `cmd/a2a`) and each is configured only through
+`customer-returns` ships **three binaries** (`cmd/api`, `cmd/mcp`, `cmd/a2a`) and each is configured only through
 environment variables. There is no config file, no flag and no secret-manager integration in the repository. REST,
 MCP and A2A are unauthenticated fleet-wide, so there is no token or key to configure; access control is the
 in-cluster ClusterIP boundary.
@@ -40,7 +40,7 @@ Composition root of the REST API, the three Kafka consumers, the outbox relay an
 | `OUTBOX_MAX_ATTEMPTS` | `20` | no | Failures after which the relay stops claiming an outbox row. `0` = unlimited. Negative or unparsable values log a WARN and use `20`, so a typo never removes the cap. |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | no | After SIGINT/SIGTERM, `/readyz` flips to 503 and the process waits this long before closing the listener. `0` disables it. Negative or unparsable values log a WARN and use `5s`. Read when the signal arrives. |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn` (or `warning`), `error`, case-insensitive. Any other value falls back to `info`. Logs are JSON on stdout. |
-| `OTEL_SERVICE_NAME` | `seller-inbound` | no | `service.name` of spans and metrics. |
+| `OTEL_SERVICE_NAME` | `customer-returns` | no | `service.name` of spans and metrics. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint, `host:port` or URL. A bare `host:port` is turned into `http://host:port`. Export never blocks boot. |
 | `SERVICE_VERSION` | `dev` | no | `service.version` resource attribute. |
 | `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute (read by `internal/adapters/outbound/telemetry`). |
@@ -56,7 +56,7 @@ or consumer-group variable.
 | `DATABASE_URL` | none | **yes** | Postgres DSN of the database `cmd/api` owns. Missing = boot error `DATABASE_URL is required: this context runs on real Postgres`. |
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the idempotent embedded migrations this binary also runs on start. |
 | `LOG_LEVEL` | `info` | no | As in `cmd/api`. |
-| `OTEL_SERVICE_NAME` | `seller-inbound-mcp` | no | `service.name` of spans and metrics. |
+| `OTEL_SERVICE_NAME` | `customer-returns-mcp` | no | `service.name` of spans and metrics. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. |
 | `SERVICE_VERSION` | `dev` | no | `service.version`; also logged on the `mcp server starting` line. |
 | `ENVIRONMENT` | `local` in telemetry, `dev` on the boot log line | no | `deployment.environment.name`. The boot line logs `dev` when unset while the resource attribute says `local`: a code inconsistency, not two settings. |
@@ -69,11 +69,11 @@ Read-only A2A agent, JSON-RPC 2.0 over HTTP (`cmd/a2a/main.go`, `cmd/a2a/telemet
 | Variable | Default | Required? | Meaning |
 | --- | --- | --- | --- |
 | `A2A_ADDR` | `:8093` | no | Listen address. |
-| `A2A_AGENT_URL` | none | **yes** | Absolute `http(s)` URL advertised on the Agent Card, for example `http://seller-inbound-a2a.warehouse-systems.svc.cluster.local:8093/`. A missing, relative or non-http(s) value is a boot error naming the variable, raised before anything is dialled. |
+| `A2A_AGENT_URL` | none | **yes** | Absolute `http(s)` URL advertised on the Agent Card, for example `http://customer-returns-a2a.warehouse-systems.svc.cluster.local:8093/`. A missing, relative or non-http(s) value is a boot error naming the variable, raised before anything is dialled. |
 | `DATABASE_URL` | none | **yes** | Postgres DSN. Missing = boot error. |
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the boot migrations. |
 | `LOG_LEVEL` | `info` | no | As in `cmd/api`. |
-| `OTEL_SERVICE_NAME` | `seller-inbound-a2a` | no | `service.name` of spans and metrics. |
+| `OTEL_SERVICE_NAME` | `customer-returns-a2a` | no | `service.name` of spans and metrics. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. |
 | `SERVICE_VERSION` | `dev` | no | `service.version`; also logged on the `a2a server starting` line. |
 | `ENVIRONMENT` | `local` in telemetry, `dev` on the boot log line | no | `deployment.environment.name`. |
@@ -90,7 +90,7 @@ Read-only A2A agent, JSON-RPC 2.0 over HTTP (`cmd/a2a/main.go`, `cmd/a2a/telemet
 | `/readyz` dependency cache and timeout | 3 s verdict cache, 2 s per round | `internal/adapters/inbound/http/readiness.go` |
 | Idempotency-Key retention | 24 h; purged by a 24 h sweep | `internal/adapters/inbound/http/idempotency.go`, `cmd/api/main.go` (`retentionSweep`) |
 | Metric push interval | 15 s | `internal/adapters/outbound/telemetry/telemetry.go` |
-| Topics produced | `retailnetwork.seller-inbound.events`, `retailnetwork.seller-inbound.analytics` | `internal/adapters/outbound/kafka/encoder.go` |
+| Topics produced | `retailnetwork.customer-returns.events`, `retailnetwork.customer-returns.analytics` | `internal/adapters/outbound/kafka/encoder.go` |
 
 ## Readiness
 
@@ -105,5 +105,5 @@ sequence.
 - **No Kafka variable on `cmd/mcp` and `cmd/a2a`.** They never dial Kafka and can never write.
 - **No scorecard threshold variables.** Tier thresholds are constants in `internal/domain/scorecard/scorecard.go`
   ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)).
-- **Chart values.** `charts/seller-inbound` maps these variables onto the pods (`database.*`, `kafka.brokers`,
+- **Chart values.** `charts/customer-returns` maps these variables onto the pods (`database.*`, `kafka.brokers`,
   `config.*`, `mcp.*`, `a2a.*`); see [Runtime](/docs/overview/runtime#deployment-helm-chart).

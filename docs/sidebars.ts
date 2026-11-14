@@ -84,8 +84,8 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'link',
-          label: '0001 Seller Inbound is a bounded context of the retail network',
-          href: '/docs/adr/0001-seller-inbound-bounded-context',
+          label: '0001 Customer Returns is a bounded context of the retail network',
+          href: '/docs/adr/0001-customer-returns-bounded-context',
         },
         {
           type: 'link',

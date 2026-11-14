@@ -3,7 +3,7 @@ id: runtime
 title: Runtime
 sidebar_label: Runtime
 sidebar_position: 2
-description: "Boot and stop sequence, probes, the outbox and consumers in operation, and the Helm chart of seller-inbound."
+description: "Boot and stop sequence, probes, the outbox and consumers in operation, and the Helm chart of customer-returns."
 ---
 
 # Runtime: configuration, probes, shutdown and the outbox
@@ -30,7 +30,7 @@ absolute http(s) URL the card advertises) is mandatory; the chart deploys it beh
 | `DATABASE_URL` | required | Postgres DSN of the service's pool. A boot error names it when unset. |
 | `MIGRATIONS_DATABASE_URL` | `DATABASE_URL` | Direct DSN for the boot migrations (golang-migrate holds a session advisory lock, which breaks behind a transaction-pooling proxy). |
 | `KAFKA_BROKERS` | required | Comma-separated `host:port` list (relay, consumers and `/readyz`). A boot error names it when unset or blank. |
-| `NODE_CONSUMER_GROUP`, `CATALOG_CONSUMER_GROUP`, `RECEIPT_CONSUMER_GROUP` | required | Stable consumer group ids of the node-topology, offer-availability (packaging) and seller-inbound (receipts) consumers. A boot error names the missing one. |
+| `NODE_CONSUMER_GROUP`, `CATALOG_CONSUMER_GROUP`, `RECEIPT_CONSUMER_GROUP` | required | Stable consumer group ids of the node-topology, offer-availability (packaging) and customer-returns (receipts) consumers. A boot error names the missing one. |
 | `SSCC_COMPANY_PREFIX` | required | The network's GS1 company prefix, 6 to 11 digits; SSCCs the network issues are built from it (ADR 0002 A5). A boot error names it when unset or invalid. |
 | `SSCC_EXTENSION_DIGIT` | `0` | Extension digit of issued SSCCs, one digit 0..9. |
 | `EVENT_PUBLISHER` | `kafka` | Only `kafka` is accepted; any other value is a boot error. |
@@ -39,7 +39,7 @@ absolute http(s) URL the card advertises) is mandatory; the chart deploys it beh
 | `OUTBOX_MAX_ATTEMPTS` | `20` | Failures before the relay excludes a row; `0` = unlimited. |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | Wait between flipping `/readyz` to 503 and closing the listener; `0` disables. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
-| `OTEL_SERVICE_NAME` | `seller-inbound` | `service.name` of spans and metrics (ADR 0008). |
+| `OTEL_SERVICE_NAME` | `customer-returns` | `service.name` of spans and metrics (ADR 0008). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | Collector OTLP/gRPC, `host:port` or URL; export never blocks. |
 | `SERVICE_VERSION` / `ENVIRONMENT` | `dev` / `local` | `service.version` / `deployment.environment.name`. |
 
@@ -82,18 +82,18 @@ the orchestrator restarts it.
 
 ## Deployment (Helm chart)
 
-`charts/seller-inbound/` runs `cmd/api` as one Deployment (`component=api`); the relay, the consumers and the loop live in that process. `config.*` values map 1:1 to the variables above and are rendered both into the chart ConfigMap (`envFrom`) and into the container env from one helper; `tests/render_test.sh` fails when `cmd/api` reads a variable the chart does not render, or the chart renders one the binary does not read. The optional `mcp` component (`component=mcp`, `mcp.enabled`, default off) runs `cmd/mcp` with its OWN env — exactly `MCP_ADDR`, `LOG_LEVEL`, `SERVICE_VERSION`, `ENVIRONMENT`, `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `DATABASE_URL` and `MIGRATIONS_DATABASE_URL` — and never mounts the api ConfigMap, so no Kafka, relay or consumer variable can reach it; `tests/render_test.sh` checks that contract against `cmd/mcp/main.go` and `telemetry.go` the same way. The observability variables (`OTEL_*`, `SERVICE_VERSION`, `ENVIRONMENT`) come from `otel.endpoint`, `otel.serviceName` (`<name>-mcp` for mcp), `image.tag` or appVersion and `environment`, go straight into the container env (not the ConfigMap) and are refused in `extraEnv`.
+`charts/customer-returns/` runs `cmd/api` as one Deployment (`component=api`); the relay, the consumers and the loop live in that process. `config.*` values map 1:1 to the variables above and are rendered both into the chart ConfigMap (`envFrom`) and into the container env from one helper; `tests/render_test.sh` fails when `cmd/api` reads a variable the chart does not render, or the chart renders one the binary does not read. The optional `mcp` component (`component=mcp`, `mcp.enabled`, default off) runs `cmd/mcp` with its OWN env — exactly `MCP_ADDR`, `LOG_LEVEL`, `SERVICE_VERSION`, `ENVIRONMENT`, `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `DATABASE_URL` and `MIGRATIONS_DATABASE_URL` — and never mounts the api ConfigMap, so no Kafka, relay or consumer variable can reach it; `tests/render_test.sh` checks that contract against `cmd/mcp/main.go` and `telemetry.go` the same way. The observability variables (`OTEL_*`, `SERVICE_VERSION`, `ENVIRONMENT`) come from `otel.endpoint`, `otel.serviceName` (`<name>-mcp` for mcp), `image.tag` or appVersion and `environment`, go straight into the container env (not the ConfigMap) and are refused in `extraEnv`.
 
 | Value | Variable | Rule |
 | --- | --- | --- |
 | `database.url` or `database.existingSecret` (+ `existingSecretKey`) | `DATABASE_URL` | `secretKeyRef`, never in the ConfigMap; render fails when neither is set. |
 | `database.migrationsExistingSecretKey` | `MIGRATIONS_DATABASE_URL` | `secretKeyRef` with `optional: true`; the binary falls back to `DATABASE_URL`. |
 | `kafka.brokers` | `KAFKA_BROKERS` | Required. |
-| `config.nodeConsumerGroup`, `config.catalogConsumerGroup`, `config.receiptConsumerGroup` | `NODE_`/`CATALOG_`/`RECEIPT_CONSUMER_GROUP` | Required, stable and service-prefixed (`seller-inbound-node`, ...), never the pod name. |
+| `config.nodeConsumerGroup`, `config.catalogConsumerGroup`, `config.receiptConsumerGroup` | `NODE_`/`CATALOG_`/`RECEIPT_CONSUMER_GROUP` | Required, stable and service-prefixed (`customer-returns-node`, ...), never the pod name. |
 | `config.ssccCompanyPrefix`, `config.ssccExtensionDigit` | `SSCC_COMPANY_PREFIX`, `SSCC_EXTENSION_DIGIT` | The prefix is required (6 to 11 digits, the render fails otherwise); the extension digit is optional. |
 | `config.eventPublisher` | `EVENT_PUBLISHER` | Only `kafka`; `*_MODE` and a non-kafka publisher in `extraEnv` are refused. |
 | `config.outboxRelayInterval`, `shutdownDrainDelay` | the relay and drain variables | Optional; not rendered while empty so the binary default applies. `shutdownDrainDelay` takes whole seconds. |
 | `config.outboxMaxAttempts` | `OUTBOX_MAX_ATTEMPTS` | Default 20, `0` = unlimited. |
 | `terminationGracePeriodSeconds` | n/a | Default 40; refused under 40 and under drain delay + 30 s (drain delay 5 s + HTTP 10 s + consumers and the loop 10 s + relay 10 s = 35 s). |
 
-The pod runs as uid 1000 with a read-only root filesystem, no privilege escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile; liveness is `/healthz`, readiness `/readyz`, plus a startup probe covering the boot retry. The `release` job packages `seller-inbound-<version>.tgz` and pushes it to `oci://ghcr.io/iqvo`.
+The pod runs as uid 1000 with a read-only root filesystem, no privilege escalation, all capabilities dropped and the `RuntimeDefault` seccomp profile; liveness is `/healthz`, readiness `/readyz`, plus a startup probe covering the boot retry. The `release` job packages `customer-returns-<version>.tgz` and pushes it to `oci://ghcr.io/iqvo`.

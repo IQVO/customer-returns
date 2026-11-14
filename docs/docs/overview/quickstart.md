@@ -3,7 +3,7 @@ id: quickstart
 title: Quickstart
 sidebar_label: Quickstart
 sidebar_position: 3
-description: "Run seller-inbound locally against Postgres and Kafka and walk a shipment from onboarding to ship."
+description: "Run customer-returns locally against Postgres and Kafka and walk a shipment from onboarding to ship."
 ---
 
 # Quickstart
@@ -45,11 +45,11 @@ See [Testing](/docs/development/testing) for the full pyramid.
 ## Start the API
 
 ```sh
-export DATABASE_URL="postgres://user:password@localhost:5432/seller_inbound?sslmode=disable"
+export DATABASE_URL="postgres://user:password@localhost:5432/customer_returns?sslmode=disable"
 export KAFKA_BROKERS="localhost:9092"
-export NODE_CONSUMER_GROUP=seller-inbound-node
-export CATALOG_CONSUMER_GROUP=seller-inbound-catalog
-export RECEIPT_CONSUMER_GROUP=seller-inbound-receipt
+export NODE_CONSUMER_GROUP=customer-returns-node
+export CATALOG_CONSUMER_GROUP=customer-returns-catalog
+export RECEIPT_CONSUMER_GROUP=customer-returns-receipt
 export SSCC_COMPANY_PREFIX=0614141        # the network's GS1 company prefix, 6 to 11 digits
 go run ./cmd/api                          # migrations run at boot; REST on :8080
 ```
@@ -82,9 +82,9 @@ psql "$DATABASE_URL" -c "INSERT INTO node_inbound_views (node_id, node_type, sta
 ## Walk a shipment
 
 Every `POST` needs an `Idempotency-Key` header (1 to 128 characters). All calls below go to the service directly
-(`localhost:8080`, routes at the root). The OpenAPI server URL is `http://localhost:8000/api/seller-inbound`, which is the
-route in `warehouse-infra` (`helm-values/seller-inbound.yaml`, `/api/seller-inbound` with the prefix stripped), so through
-Kong on `:8000` the same calls go to `http://localhost:8000/api/seller-inbound/...`.
+(`localhost:8080`, routes at the root). The OpenAPI server URL is `http://localhost:8000/api/customer-returns`, which is the
+route in `warehouse-infra` (`helm-values/customer-returns.yaml`, `/api/customer-returns` with the prefix stripped), so through
+Kong on `:8000` the same calls go to `http://localhost:8000/api/customer-returns/...`.
 
 1. Onboard a seller:
 
@@ -127,7 +127,7 @@ Kong on `:8000` the same calls go to `http://localhost:8000/api/seller-inbound/.
 
    With no closed shipment the rates are omitted and `complianceTier` is `GOOD`.
 
-`POST .../dispatches` appends `InboundShipmentShipped` to the outbox; the relay publishes it to `retailnetwork.seller-inbound.events`
+`POST .../dispatches` appends `InboundShipmentShipped` to the outbox; the relay publishes it to `retailnetwork.customer-returns.events`
 within `OUTBOX_RELAY_INTERVAL`. The shipment closes only when vendor-connectivity publishes `InboundReceiptSubmitted`
 for it ([Integration](/docs/ecosystem/integration)).
 

@@ -3,12 +3,12 @@ id: architecture
 title: Architecture
 sidebar_label: Architecture
 sidebar_position: 1
-description: "The hexagonal layout of seller-inbound, its three binaries and ports, a container diagram, the Postgres tables and the architecture rules the tests enforce."
+description: "The hexagonal layout of customer-returns, its three binaries and ports, a container diagram, the Postgres tables and the architecture rules the tests enforce."
 ---
 
 # Architecture
 
-seller-inbound follows the fleet's hexagonal (ports and adapters) layout: dependencies point inward, the domain imports
+customer-returns follows the fleet's hexagonal (ports and adapters) layout: dependencies point inward, the domain imports
 nothing from the rest of the module, and only `cmd/` wires the layers together. Everything on this page is on `develop`.
 
 ## Layout
@@ -32,7 +32,7 @@ nothing from the rest of the module, and only `cmd/` wires the layers together. 
 | Outbound adapter | `internal/adapters/outbound/kafka` | `Encoder` (domain event to CloudEvents outbox message), `NewWriter`, `RelaySink`, `BrokerCheck` (the Kafka half of `/readyz`). |
 | Outbound adapter | `internal/adapters/outbound/outbox` | The relay loop that drains `outbox_events`. |
 | Outbound adapter | `internal/adapters/outbound/sscc` | The SSCC issuer over the Postgres sequence `sscc_serial_seq`. |
-| Outbound adapter | `internal/adapters/outbound/telemetry` | OpenTelemetry setup, the `seller_inbound.shipment.shipped` counter, the trace-correlating slog handler. |
+| Outbound adapter | `internal/adapters/outbound/telemetry` | OpenTelemetry setup, the `customer_returns.shipment.shipped` counter, the trace-correlating slog handler. |
 | Outbound adapter | `internal/adapters/outbound/{clock,ids}` | `Clock` and id generation (`pln-`, `shp-` prefixes). |
 | Outbound adapter | `internal/adapters/outbound/memory` | In-memory implementation of the ports: a **test double** for the unit and BDD suites. No `cmd/**` binary imports it (`TestRuntimeBinaryHasNoInMemoryAdapters`). |
 | Kafka envelope | `internal/adapters/kafka/cloudevents` | The only place a CloudEvents 1.0 envelope is built or decoded. |
@@ -52,7 +52,7 @@ shipment counter are ports too, so the use cases never touch infrastructure.
 | `cmd/mcp` | Read-only MCP server (Streamable HTTP) over the read use cases; no relay, consumer or Kafka ([ADR 0006](/docs/adr/0006-read-only-mcp-server)). | `MCP_ADDR`, default `:8090` | `GET /healthz` |
 | `cmd/a2a` | Read-only A2A (Agent2Agent) agent: JSON-RPC 2.0 at `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`; no relay, consumer or Kafka ([ADR 0009](/docs/adr/0009-a2a-inbound-adapter)). | `A2A_ADDR`, default `:8093` | `GET /healthz` |
 
-`web/` is not a Go binary: it is the `seller_inbound_mfe` Module Federation remote (Vite and React) shipped in its own
+`web/` is not a Go binary: it is the `customer_returns_mfe` Module Federation remote (Vite and React) shipped in its own
 nginx image ([ADR 0007](/docs/adr/0007-console-web-remote)). There is no projector, reports or analytical-database
 binary. How `cmd/api` boots and stops is in [Runtime](/docs/overview/runtime); every variable is in
 [Configuration](/docs/operations/configuration).
@@ -129,7 +129,7 @@ Source: `cmd/api/{main,wire_adapters,wire_background}.go` (wiring and workers), 
 ## Data stores
 
 One Postgres database owned by this context, created by the embedded migrations
-(`internal/adapters/outbound/postgres/migrations/`: `0001_seller_inbound_schema`, `0002_seller_scorecard`):
+(`internal/adapters/outbound/postgres/migrations/`: `0001_customer_returns_schema`, `0002_seller_scorecard`):
 
 | Table | Holds |
 | --- | --- |
@@ -146,7 +146,7 @@ One Postgres database owned by this context, created by the embedded migrations
 
 Plus the sequence `sscc_serial_seq`. Postgres is the only store: the binaries refuse to boot without `DATABASE_URL`
 and nothing is served from process memory. Kafka is the fleet's single broker; `cmd/api` produces to
-`retailnetwork.seller-inbound.events` and `retailnetwork.seller-inbound.analytics`, consumes
+`retailnetwork.customer-returns.events` and `retailnetwork.customer-returns.analytics`, consumes
 `retailnetwork.node-topology.events`, `retailnetwork.offer-availability.events` and
 `retailnetwork.vendor-connectivity.events`, and never creates a topic through an admin API.
 

@@ -3,7 +3,7 @@ id: domain-events
 title: Domain Events
 sidebar_label: Domain Events
 sidebar_position: 7
-description: "The nine events Seller Inbound publishes and the eight it consumes, with payloads, an example envelope and idempotency rules."
+description: "The nine events Customer Returns publishes and the eight it consumes, with payloads, an example envelope and idempotency rules."
 ---
 
 # Domain Events
@@ -52,12 +52,12 @@ service. The SSCC and GTIN carry valid mod-10 check digits.
 {
   "specversion": "1.0",
   "id": "3f1a7c52-9d0e-4b6a-8c21-5e7f0a9b1c33",
-  "source": "/retailnetwork/seller-inbound",
-  "type": "com.retailnetwork.partner.seller-inbound.inboundshipment.InboundShipmentLabelled",
+  "source": "/retailnetwork/customer-returns",
+  "type": "com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentLabelled",
   "subject": "ish-01J9Z7K3M4",
   "time": "2026-10-23T13:10:00Z",
   "datacontenttype": "application/json",
-  "dataschema": "urn:retailnetwork:seller-inbound:events:InboundShipmentLabelled:v1",
+  "dataschema": "urn:retailnetwork:customer-returns:events:InboundShipmentLabelled:v1",
   "data": {
     "shipmentId": "ish-01J9Z7K3M4",
     "planId": "ipl-01J9Z7H8Q2",

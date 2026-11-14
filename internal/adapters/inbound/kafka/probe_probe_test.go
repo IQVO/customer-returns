@@ -49,7 +49,13 @@ func TestProbeConsumer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- c.Run(ctx) }()
-	defer func() { cancel(); select { case <-done: case <-time.After(20 * time.Second): } }()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(20 * time.Second):
+		}
+	}()
 
 	time.Sleep(2 * time.Second)
 	placed := `{"orderId":"ord-1","placedAt":"2026-11-01T10:00:00Z","groups":[{"groupNo":1,"destinationPostalPrefix":"22","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-100","Quantity":2}]}]}`

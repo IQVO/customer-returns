@@ -3,13 +3,13 @@ id: entity-relationship
 title: Entity Relationship
 sidebar_label: Entity Relationship
 sidebar_position: 10
-description: "The Postgres schema of Seller Inbound's own database, as created by migrations 0001 and 0002."
+description: "The Postgres schema of Customer Returns's own database, as created by migrations 0001 and 0002."
 ---
 
 # Entity Relationship
 
 The schema of this context's own Postgres database, as created by
-`internal/adapters/outbound/postgres/migrations/0001_seller_inbound_schema.up.sql` and `0002_seller_scorecard.up.sql`.
+`internal/adapters/outbound/postgres/migrations/0001_customer_returns_schema.up.sql` and `0002_seller_scorecard.up.sql`.
 There are no foreign keys: each aggregate is one row, and the parts drawn as child entities (plan lines, cartons and
 their contents) are stored as `JSONB` on that row. Ids of other aggregates are held by value. The `sscc_registry` table
 holds network-wide SSCC uniqueness ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)). Eleven tables (nine in 0001,

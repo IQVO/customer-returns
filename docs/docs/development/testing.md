@@ -3,7 +3,7 @@ id: testing
 title: Testing
 sidebar_label: Testing
 sidebar_position: 1
-description: "The seller-inbound test pyramid: unit, handler and use-case tests, godog scenarios, integration with testcontainers, contract, mutation and architecture fitness tests, and the CI jobs."
+description: "The customer-returns test pyramid: unit, handler and use-case tests, godog scenarios, integration with testcontainers, contract, mutation and architecture fitness tests, and the CI jobs."
 ---
 
 # Testing
@@ -66,8 +66,8 @@ fitness tests enforce this (`TestPostgresIntegrationTestsUseTestcontainers`, `Te
 
 - `TestEventCatalogueMatchesContract` (`internal/architecture/catalogue_fitness_test.go`, a fleet-managed file) checks
   that every `com.warehouse.(wms|wes).<service>...` or `com.retailnetwork.<domain>.<service>...` type that
-  `apis/asyncapi.yaml` declares for this module appears in the ADR catalogue. seller-inbound's types are
-  `com.retailnetwork.partner.seller-inbound...`; its nine published types are checked against ADR 0004, and the types
+  `apis/asyncapi.yaml` declares for this module appears in the ADR catalogue. customer-returns's types are
+  `com.retailnetwork.partner.customer-returns...`; its nine published types are checked against ADR 0004, and the types
   it only consumes (other services' segments) are not required there. `TestEventCatalogueDetector` pins both type
   shapes. A new event still changes the domain struct, `apis/asyncapi.yaml` and the ADR 0004 `type:` line in one commit
   (CLAUDE.md); the test now fails the build if the ADR line is missing.
@@ -107,7 +107,7 @@ rule fails on a bad fixture.
 | MCP optional inputs carry `omitempty` | `TestMCPOptionalToolInputsCarryOmitempty` |
 | Integration tests use testcontainers | `TestPostgresIntegrationTestsUseTestcontainers`, `TestKafkaIntegrationTestsUseTestcontainers` |
 
-Known discrepancy: `internal/architecture/architecture_test.go:23` sets `modulePath = "github.com/IQVO/seller-inbound"`
+Known discrepancy: `internal/architecture/architecture_test.go:23` sets `modulePath = "github.com/IQVO/customer-returns"`
 while `go.mod` declares `module github.com/IQVO/customer-returns`. Whether the arch-go rules of
 `TestHexagonalArchitecture` resolve packages under the `go.mod` path was not verified for this page.
 
@@ -146,7 +146,7 @@ Triggers: push and pull request on `main` and `develop`, a weekly Monday schedul
 | `api-lint` | Spectral on both specs | blocking |
 | `vuln` | govulncheck | blocking |
 | `helm-lint` | `ct lint` and the Service selector test | pull requests only |
-| `chart-tests` | every `charts/seller-inbound/tests/*.sh` and `test_*.py` | blocking |
+| `chart-tests` | every `charts/customer-returns/tests/*.sh` and `test_*.py` | blocking |
 | `arch-test` | fitness tests | blocking |
 | `web` | the Module Federation remote: lint, `tsc -b`, vitest, build | blocking |
 | `docker-publish`, `release` | image, cosign signature, SBOM, Helm chart, tag | push to `main` only, after the jobs above |

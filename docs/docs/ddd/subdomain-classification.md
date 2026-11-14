@@ -3,12 +3,12 @@ id: subdomain-classification
 title: Subdomain classification
 sidebar_label: Subdomain classification
 sidebar_position: 2
-description: "Why seller-inbound is a Supporting subdomain of the retail network, and how its neighbours are classified."
+description: "Why customer-returns is a Supporting subdomain of the retail network, and how its neighbours are classified."
 ---
 
 # Subdomain classification
 
-**Seller Inbound is a Supporting subdomain**: bounded context `seller-inbound`, CloudEvents tier `partner`, business
+**Customer Returns is a Supporting subdomain**: bounded context `customer-returns`, CloudEvents tier `partner`, business
 model *supply enabler*, evolution *custom-built*. Its place on the Core Domain Chart is business differentiation 0.34,
 model complexity 0.48 ([Core Domain Chart](/docs/ddd/core-domain-chart)).
 
@@ -34,13 +34,13 @@ Copied from the retail network's classification
 ([Subdomain Classification](https://iqvo.github.io/warehouse-docs/network/strategic-design/subdomain-classification),
 `origin/main` of IQVO/warehouse-docs), with the relation to this context:
 
-| Bounded context | Classification | Tier | Relation to seller-inbound |
+| Bounded context | Classification | Tier | Relation to customer-returns |
 | --- | --- | --- | --- |
 | `node-topology` | Supporting | `logistics` | Upstream: node status, type and inbound limits (Conformist). |
 | `offer-availability` | Supporting | `commerce` | Upstream: packaging hierarchy and GTINs (Conformist). |
 | `vendor-connectivity` | Supporting | `partner` | Upstream for the receipt, downstream for the manifest and closing status (Customer/Supplier both ways, events only). |
 | `node-performance` | Supporting | `partner` | Downstream: consumes `InboundShipmentShipped`. |
-| `seller-inbound` | **Supporting** | `partner` | This context. |
+| `customer-returns` | **Supporting** | `partner` | This context. |
 | `delivery-promise`, `order-sourcing` | Core | `commerce` | No edge (Separate Ways). |
 | `linehaul-transportation`, `last-mile-delivery` | Supporting | `logistics` | No edge. |
 | `customer-ordering` | Generic | `commerce` | No edge. |

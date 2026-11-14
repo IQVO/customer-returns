@@ -3,7 +3,7 @@ id: sequence-diagrams
 title: Sequence Diagrams
 sidebar_label: Sequence Diagrams
 sidebar_position: 8
-description: "One sequence per key Seller Inbound use case, from inbound adapter through aggregate, repository and outbox."
+description: "One sequence per key Customer Returns use case, from inbound adapter through aggregate, repository and outbox."
 ---
 
 # Sequence Diagrams
@@ -13,8 +13,8 @@ Shared conventions, from the code:
 - Every use case runs inside `Service.atomically`, one Postgres transaction (`UnitOfWork`). The repository saves with
   `WHERE version = :expected`; a lost race is `concurrent-update` (409).
 - Outbox rows are written in the same transaction as the aggregate (`EventOutbox.Append`); the in-process relay produces
-  them to Kafka later (`retailnetwork.seller-inbound.events`; the six analytics-only events to
-  `retailnetwork.seller-inbound.analytics`).
+  them to Kafka later (`retailnetwork.customer-returns.events`; the six analytics-only events to
+  `retailnetwork.customer-returns.analytics`).
 - Write routes pass the HTTP idempotency middleware first (`Idempotency-Key`); it is omitted from the diagrams.
 - Consumers claim the CloudEvents `id` in `processed_events` in the same transaction as their effect.
 - Event names are short; full types are on the [Event catalogue](/docs/api-reference/events).
@@ -84,7 +84,7 @@ sequenceDiagram
     end
 ```
 
-Source: `shipments.go` (`ShipInboundShipment`). The outcome is counted on `seller_inbound.shipment.shipped`
+Source: `shipments.go` (`ShipInboundShipment`). The outcome is counted on `customer_returns.shipment.shipped`
 (`outcome` `shipped` or `rejected`, `reason` the problem slug); see [Observability](/docs/operations/observability).
 
 ## 3. ApplyInboundReceipt (consumer)

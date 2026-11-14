@@ -3,7 +3,7 @@ id: tools
 title: MCP tools
 sidebar_label: MCP tools
 sidebar_position: 2
-description: "The four read-only MCP tools of seller-inbound, every one declaring authority L1, plus the scorecard resource and the compliance SOP prompt, from the pinned tool registry."
+description: "The four read-only MCP tools of customer-returns, every one declaring authority L1, plus the scorecard resource and the compliance SOP prompt, from the pinned tool registry."
 ---
 
 # MCP tools
@@ -18,7 +18,7 @@ in-cluster ClusterIP boundary is the access control.
 | Endpoint | `/mcp` (also mounted at `/`) |
 | Probe | `GET /healthz` returns `200 {"status":"ok"}` |
 | Needs | `DATABASE_URL` only; it dials no Kafka and registers no write seam |
-| Gateway | `/api/mcp/seller-inbound` in `warehouse-infra` (`helm-values/seller-inbound.yaml`, `mcp.route.path`); the ops agent calls `http://seller-inbound-mcp.warehouse-systems.svc.cluster.local:8090/mcp` |
+| Gateway | `/api/mcp/customer-returns` in `warehouse-infra` (`helm-values/customer-returns.yaml`, `mcp.route.path`); the ops agent calls `http://customer-returns-mcp.warehouse-systems.svc.cluster.local:8090/mcp` |
 | Deployed by | the chart behind `mcp.enabled` (default off, on in `warehouse-infra`) |
 
 Source: `cmd/mcp/main.go`, `cmd/mcp/router.go`, `internal/adapters/inbound/mcp/{server,tools,errors}.go`.
@@ -105,7 +105,7 @@ session state; pinned by the raw-POST tests in `internal/adapters/inbound/mcp/st
 
 ## Resource: seller compliance scorecard
 
-`warehouse://seller-inbound/scorecards/{sellerId}` (`application/json`) is the one resource of this server: the
+`warehouse://customer-returns/scorecards/{sellerId}` (`application/json`) is the one resource of this server: the
 default-window (30d) compliance scorecard of ONE seller, built from the same `GetSellerScorecard` read use case as the
 `get_seller_scorecard` tool and the REST `GET /sellers/{sellerId}/scorecard`. Bounded by construction: one seller,
 the scorecard's fixed fields, JSON text — never a dump of a table. A malformed URI or an unknown seller is an error.

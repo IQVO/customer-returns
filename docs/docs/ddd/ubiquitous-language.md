@@ -3,7 +3,7 @@ id: ubiquitous-language
 title: Ubiquitous language
 sidebar_label: Ubiquitous language
 sidebar_position: 0
-description: "The terms seller-inbound speaks, mapped to the Go identifiers in this repository, plus the neighbour terms it reads."
+description: "The terms customer-returns speaks, mapped to the Go identifiers in this repository, plus the neighbour terms it reads."
 ---
 
 # Ubiquitous language

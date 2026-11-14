@@ -3,7 +3,7 @@ id: use-cases
 title: Use cases
 sidebar_label: Use cases
 sidebar_position: 1
-description: "Every application use case of seller-inbound: trigger, inputs, invariants checked, errors and the events raised."
+description: "Every application use case of customer-returns: trigger, inputs, invariants checked, errors and the events raised."
 ---
 
 # Use cases
@@ -130,7 +130,7 @@ Source: `internal/application/usecases/{sellers,plans,shipments,scorecard,consum
 - **Invariants:** shipment `LABELLED` (`DRAFT` gives `shipment-not-labelled`, any later state `illegal-transition`);
   seller `ACTIVE`; node still able to receive.
 - **Events:** `InboundShipmentShipped`. Every ship attempt, successful or not, increments the counter
-  `seller_inbound.shipment.shipped` ([Observability](/docs/operations/observability)).
+  `customer_returns.shipment.shipped` ([Observability](/docs/operations/observability)).
 
 ## Consumed events
 

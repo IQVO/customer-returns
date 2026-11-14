@@ -3,12 +3,12 @@ id: introduction
 title: Introduction
 sidebar_label: Introduction
 sidebar_position: 1
-description: "What seller-inbound owns and does not own, its Supporting classification in the Network area, its main capabilities and where to read next."
+description: "What customer-returns owns and does not own, its Supporting classification in the Network area, its main capabilities and where to read next."
 ---
 
-# Seller Inbound
+# Customer Returns
 
-**Seller Inbound** (`seller-inbound`) is the front door for stock that **sellers** send to the retail network. A seller
+**Customer Returns** (`customer-returns`) is the front door for stock that **sellers** send to the retail network. A seller
 declares an **inbound plan** in eaches, packs it into **cartons** that each carry an **SSCC** and a printed label,
 and ships it to a vendor node. Cartons may be **case-packed** (a master carton holding one item at the quantity of its
 declared case level) or mixed. The context checks each plan against the destination node's declared inbound limits and
@@ -20,7 +20,7 @@ vendor's carton-level receipt, recording every discrepancy instead of correcting
 | --- | --- |
 | Area | Network (retail-network), tier `partner` |
 | Subdomain class | **Supporting**, custom-built ([Classification](/docs/ddd/subdomain-classification)) |
-| Repository | [`IQVO/seller-inbound`](https://github.com/IQVO/seller-inbound), Go, hexagonal |
+| Repository | [`IQVO/customer-returns`](https://github.com/IQVO/customer-returns), Go, hexagonal |
 | Binaries | `cmd/api` (REST, consumers, outbox relay), `cmd/mcp` (read-only MCP), `cmd/a2a` (read-only A2A); `web/` is the console remote |
 | Store and bus | Postgres (owned by the context), Kafka (the fleet's single broker) |
 | Design source | `network/model/model.yaml` in IQVO/warehouse-docs; this repository's [ADRs](/docs/adr) record what the service does |
@@ -93,7 +93,7 @@ only through the Vendor API of `vendor-connectivity`.
 | See why | [Architecture decision records](/docs/adr) |
 
 The network-wide view of this context (the other ten contexts, the model and the gap register) is on the
-[retail network documentation](https://iqvo.github.io/warehouse-docs/network/contexts/seller-inbound).
+[retail network documentation](https://iqvo.github.io/warehouse-docs/network/contexts/customer-returns).
 
 :::note[Disclaimer]
 This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.

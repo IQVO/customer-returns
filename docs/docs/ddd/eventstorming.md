@@ -3,7 +3,7 @@ id: eventstorming
 title: EventStorming
 sidebar_label: EventStorming
 sidebar_position: 6
-description: "Process-level EventStorming boards for Seller Inbound, from a seller's plan to a closed shipment, with hotspots."
+description: "Process-level EventStorming boards for Customer Returns, from a seller's plan to a closed shipment, with hotspots."
 ---
 
 # EventStorming

@@ -3,7 +3,7 @@ id: class-diagram
 title: Class Diagram
 sidebar_label: Class Diagram
 sidebar_position: 9
-description: "UML class diagrams of the Seller Inbound domain types and its hexagonal layout, with the as-built package names."
+description: "UML class diagrams of the Customer Returns domain types and its hexagonal layout, with the as-built package names."
 ---
 
 # Class Diagram

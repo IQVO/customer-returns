@@ -3,12 +3,12 @@ id: runbook
 title: Runbook
 sidebar_label: Runbook
 sidebar_position: 2
-description: "Deploying and operating seller-inbound: components, probes, migrations, Kafka topics and consumer groups, outbox relay, DLQ, sweepers and failure procedures."
+description: "Deploying and operating customer-returns: components, probes, migrations, Kafka topics and consumer groups, outbox relay, DLQ, sweepers and failure procedures."
 ---
 
 # Runbook
 
-**seller-inbound** is the retail network's front door for stock coming in from sellers:
+**customer-returns** is the retail network's front door for stock coming in from sellers:
 a seller is onboarded, declares an inbound plan in eaches, packs cartons identified by an
 SSCC, has the label data produced and ships; the vendor's carton-level receipt closes the
 shipment and every discrepancy and compliance violation is recorded, never corrected.
@@ -20,7 +20,7 @@ Sources: [ADR 0002](/docs/adr/0002-aggregates-and-invariants) (aggregates),
 
 ## Runtime shape
 
-The chart `charts/seller-inbound` deploys up to four components. The `api` Deployment runs `cmd/api` and
+The chart `charts/customer-returns` deploys up to four components. The `api` Deployment runs `cmd/api` and
 is always on (`replicaCount: 1`, HPA off by default). Three are optional and off by default: `mcp`
 (`cmd/mcp`, `mcp.enabled`), `a2a` (`cmd/a2a`, `a2a.enabled`) and `frontend` (the nginx pod serving the web remote,
 `frontend.enabled`). There is no projector or reports component. Inside the `api` process (`cmd/api/main.go`, `wire_adapters.go`,
@@ -46,14 +46,14 @@ the orchestrator restarts it (`watchWorkers`); it never sits "alive" with a dead
 - **Postgres** - `DATABASE_URL` (pooled DSN, PgBouncer in-cluster) and
   `MIGRATIONS_DATABASE_URL` (direct DSN for the boot migrations only: golang-migrate
   holds a session advisory lock, which breaks behind a transaction-pooling proxy).
-  Both from the Secret `seller-inbound-db` (chart `database.existingSecret`; the
+  Both from the Secret `customer-returns-db` (chart `database.existingSecret`; the
   migrations key is `optional: true`, the binary falls back to `DATABASE_URL`).
   Embedded migrations run at boot with backoff (`internal/bootretry`). The SSCC serial is
   the Postgres sequence `sscc_serial_seq`.
 - **Kafka** - `KAFKA_BROKERS` (required): relay sink, the three consumers, `/readyz`.
   Topics are auto-created by the first writer (`AllowAutoTopicCreation: true`,
   `internal/adapters/outbound/kafka/writer.go`). Publishes
-  `retailnetwork.seller-inbound.events` and `retailnetwork.seller-inbound.analytics`
+  `retailnetwork.customer-returns.events` and `retailnetwork.customer-returns.analytics`
   (`.../outbound/kafka/encoder.go`); dead letters go to `<topic>.dlq`
   (`.../inbound/kafka/deadletter.go`).
 - **No sibling REST service**: nothing is called synchronously (ADR 0003).
@@ -82,7 +82,7 @@ Writes with a dependency down, per code:
 
 The full variable list, with defaults, is [Configuration](/docs/operations/configuration). In the chart
 each `cmd/api` variable maps 1:1 to a `values.yaml` `config.*` key rendered into the ConfigMap/container env
-(checksum-annotated so a change rolls the pods); secret keys come from the `seller-inbound-db` Secret.
+(checksum-annotated so a change rolls the pods); secret keys come from the `customer-returns-db` Secret.
 
 | Env var | Chart value | Default / meaning |
 | --- | --- | --- |
@@ -104,7 +104,7 @@ each `cmd/api` variable maps 1:1 to a `values.yaml` `config.*` key rendered into
 ## Migrations
 
 Both `cmd/api` and, independently, `cmd/mcp` and `cmd/a2a` run the embedded golang-migrate migrations
-(`internal/adapters/outbound/postgres/migrations/`, `0001_seller_inbound_schema` and `0002_seller_scorecard`) at
+(`internal/adapters/outbound/postgres/migrations/`, `0001_customer_returns_schema` and `0002_seller_scorecard`) at
 boot, with backoff, before opening the pool (`internal/bootretry`). golang-migrate's advisory lock makes concurrent
 starts safe, but it is a session lock: where `DATABASE_URL` points at a transaction-pooling proxy set
 `MIGRATIONS_DATABASE_URL` to a direct DSN. Migration `0002` backfills the scorecard tables from the published events
@@ -117,41 +117,41 @@ in `outbox_events`. There is no manual migration step and no separate migration 
 | `retailnetwork.node-topology.events` | consumed | node consumer | `NODE_CONSUMER_GROUP` |
 | `retailnetwork.offer-availability.events` | consumed | catalog consumer | `CATALOG_CONSUMER_GROUP` |
 | `retailnetwork.vendor-connectivity.events` | consumed | receipt consumer | `RECEIPT_CONSUMER_GROUP` |
-| `retailnetwork.seller-inbound.events` | published by the relay | outbox relay | n/a |
-| `retailnetwork.seller-inbound.analytics` | published by the relay | outbox relay | n/a |
+| `retailnetwork.customer-returns.events` | published by the relay | outbox relay | n/a |
+| `retailnetwork.customer-returns.analytics` | published by the relay | outbox relay | n/a |
 | `<topic>.dlq` | published on poison messages | each consumer | n/a |
 
 Group ids are stable and service-prefixed, never the pod name. The ids the cluster uses are set in `warehouse-infra`
-`helm-values/seller-inbound.yaml`: `seller-inbound-node-topology`, `seller-inbound-catalog-packaging` and
-`seller-inbound-vendor-receipts`. Topics are auto-created by the first writer; the service creates none through
-an admin API (warehouse-infra pre-creates `retailnetwork.seller-inbound.events` at deploy, because a kafka-go group
+`helm-values/customer-returns.yaml`: `customer-returns-node-topology`, `customer-returns-catalog-packaging` and
+`customer-returns-vendor-receipts`. Topics are auto-created by the first writer; the service creates none through
+an admin API (warehouse-infra pre-creates `retailnetwork.customer-returns.events` at deploy, because a kafka-go group
 consumer started before its topic exists is never handed the partition).
 
 ## Alerts and dashboards
 
-- Grafana dashboard: uid `warehouse-seller-inbound` (fleet convention, configmap
+- Grafana dashboard: uid `warehouse-customer-returns` (fleet convention, configmap
   `grafana-dashboards-warehouse` in namespace `observability`).
 - Pod-restart alerting covers every pod in `warehouse-systems`
   (`WarehousePodRestarting` on `kube_pod_container_status_restarts_total`,
   warehouse-infra `terraform/alerting/warehouse-alert-rules.json`).
 - Logs are JSON on stdout; Alloy maps the pod label `app.kubernetes.io/name` to the
   Loki label `app`, so query Loki with `{namespace="warehouse-systems",
-  app="seller-inbound"}`.
+  app="customer-returns"}`.
 - Metrics are OpenTelemetry pushes to the Collector ([Observability](/docs/operations/observability)): HTTP
-  request duration, Go runtime metrics and the business counter `seller_inbound.shipment.shipped`. There is no
+  request duration, Go runtime metrics and the business counter `customer_returns.shipment.shipped`. There is no
   instrument for consumer lag or outbox depth; read those from Kafka and from `outbox_events`
   (`published_at IS NULL`) directly.
 
 ## Failure modes
 
-- **Pod crash-loops.** Diagnosis: `kubectl -n warehouse-systems logs deploy/seller-inbound`
+- **Pod crash-loops.** Diagnosis: `kubectl -n warehouse-systems logs deploy/customer-returns`
   - a missing/invalid env var is a boot error naming the variable (including an
   `SSCC_COMPANY_PREFIX` that is not 6 to 11 digits); migrations and the first ping retry
   with backoff before the process gives up. The pod also restarts by design when the
   relay, a consumer or the loop dies. Action: fix the ConfigMap/Secret (or the
   dependency), then `rollout restart`.
 - **Postgres unreachable.** Symptom: `/readyz` 503 naming `postgres`; REST writes fail
-  (see Health). Action: check PgBouncer and the `seller-inbound-db` Secret; recovery is
+  (see Health). Action: check PgBouncer and the `customer-returns-db` Secret; recovery is
   automatic.
 - **Kafka unreachable.** Symptom: `/readyz` 503 naming `kafka`; REST writes are STILL
   accepted and queue in `outbox_events` (`published_at IS NULL`); the relay retries each
@@ -217,11 +217,11 @@ and suspending a seller stays the manual `POST /sellers/{id}/suspensions`.
 ## Operational actions
 
 ```sh
-kubectl -n warehouse-systems rollout restart deploy/seller-inbound
-kubectl -n warehouse-systems logs deploy/seller-inbound --follow
+kubectl -n warehouse-systems rollout restart deploy/customer-returns
+kubectl -n warehouse-systems logs deploy/customer-returns --follow
 ```
 
-Logs in Grafana Loki: `{namespace="warehouse-systems", app="seller-inbound"}`
+Logs in Grafana Loki: `{namespace="warehouse-systems", app="customer-returns"}`
 (JSON lines; `level`, `loop`, `consumer`, `error` fields). Restarts are graceful:
 `/readyz` flips to 503, `SHUTDOWN_DRAIN_DELAY` (5s) waits, HTTP drains (10s), then
 consumers and the loop stop, the relay LAST (so nothing committed is stranded); the chart's

@@ -3,12 +3,12 @@ id: integration
 title: Integration
 sidebar_label: Integration
 sidebar_position: 1
-description: "Every upstream and downstream of seller-inbound: protocol, contract, failure behaviour, and the edges that do not exist."
+description: "Every upstream and downstream of customer-returns: protocol, contract, failure behaviour, and the edges that do not exist."
 ---
 
 # Integration
 
-seller-inbound talks to its neighbours through Kafka and its own interfaces only. It makes **no synchronous call to
+customer-returns talks to its neighbours through Kafka and its own interfaces only. It makes **no synchronous call to
 any sibling context** (no REST, MCP or A2A client): the chart has no `*Url` keys, the A2A adapter is pinned
 read-only with no outbound client (`TestA2AAgentIsReadOnlyAndHasNoOutboundClient`), and the node and packaging facts it
 needs arrive as events into local tables ([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models)). A plan
@@ -23,7 +23,7 @@ flowchart LR
     NT["node-topology<br/>topic retailnetwork.node-topology.events"]
     OA["offer-availability<br/>topic retailnetwork.offer-availability.events"]
     VC["vendor-connectivity<br/>topic retailnetwork.vendor-connectivity.events"]
-    SI["seller-inbound<br/>cmd/api"]
+    SI["customer-returns<br/>cmd/api"]
     NP["node-performance"]
     VC2["vendor-connectivity<br/>InboundShipmentView"]
     AN["analytics<br/>no in-org consumer"]
@@ -32,9 +32,9 @@ flowchart LR
     NT -->|"5 node events"| SI
     OA -->|"2 packaging events"| SI
     VC -->|"InboundReceiptSubmitted"| SI
-    SI -->|"Labelled, Shipped, Received<br/>topic retailnetwork.seller-inbound.events"| VC2
+    SI -->|"Labelled, Shipped, Received<br/>topic retailnetwork.customer-returns.events"| VC2
     SI -->|"InboundShipmentShipped"| NP
-    SI -->|"6 analytics events<br/>topic retailnetwork.seller-inbound.analytics"| AN
+    SI -->|"6 analytics events<br/>topic retailnetwork.customer-returns.analytics"| AN
     SEL -->|"REST :8080"| SI
     AG -->|"cmd/mcp :8090, cmd/a2a :8093 (read-only)"| SI
 ```
@@ -43,7 +43,7 @@ Source: `internal/adapters/inbound/kafka/consumers.go`, `internal/adapters/outbo
 `apis/asyncapi.yaml`, and the consumer settings in `warehouse-infra` `helm-values/vendor-connectivity.yaml` and
 `node-performance.yaml`.
 
-## Upstream: what seller-inbound consumes
+## Upstream: what customer-returns consumes
 
 Three consumers run in `cmd/api`, each under a mandatory stable consumer group ([Runbook](/docs/operations/runbook)).
 Each message is claimed in `processed_events` by its CloudEvents id in the same transaction as its effect, so delivery
@@ -72,7 +72,7 @@ the process exits non-zero so the orchestrator restarts it. Out-of-order node an
 until offer-availability has published a CASE level, a case-packed carton for that item is refused
 `case-qty-mismatches-gtin`. There is no live lookup to fall back on.
 
-## Downstream: what seller-inbound publishes
+## Downstream: what customer-returns publishes
 
 Events are written to `outbox_events` in the same transaction as the aggregate and relayed to Kafka by the in-process
 relay (`OUTBOX_RELAY_INTERVAL`, rows retried up to `OUTBOX_MAX_ATTEMPTS`). Writers use `RequiredAcks: all` and auto-create
@@ -81,10 +81,10 @@ payload.
 
 | Topic | Events | Known consumers |
 | --- | --- | --- |
-| `retailnetwork.seller-inbound.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | vendor-connectivity (builds the `InboundShipmentView` it serves on the Vendor API); node-performance (`InboundShipmentShipped`, the start of its inbound timeliness metric) |
-| `retailnetwork.seller-inbound.analytics` | `SellerOnboarded`, `SellerSuspended`, `SellerReinstated`, `InboundPlanConfirmed`, `InboundDiscrepancyRecorded`, `SellerComplianceViolationRecorded` | none in the organisation (published for analytics only) |
+| `retailnetwork.customer-returns.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | vendor-connectivity (builds the `InboundShipmentView` it serves on the Vendor API); node-performance (`InboundShipmentShipped`, the start of its inbound timeliness metric) |
+| `retailnetwork.customer-returns.analytics` | `SellerOnboarded`, `SellerSuspended`, `SellerReinstated`, `InboundPlanConfirmed`, `InboundDiscrepancyRecorded`, `SellerComplianceViolationRecorded` | none in the organisation (published for analytics only) |
 
-The consumer groups of the downstream services are in `warehouse-infra` (`node-performance-seller-inbound` for
+The consumer groups of the downstream services are in `warehouse-infra` (`node-performance-customer-returns` for
 node-performance; vendor-connectivity's values comment names the same stream). If Kafka is down the writes are still
 accepted and the events wait in the outbox.
 
@@ -92,9 +92,9 @@ accepted and the events wait in the outbox.
 
 | Interface | Binary | Address | Consumers |
 | --- | --- | --- | --- |
-| REST seller API | `cmd/api` | `:8080`; Kong route `/api/seller-inbound` with the prefix stripped (`warehouse-infra`) | sellers, the console remote `seller_inbound_mfe` (`web/`, served at `/mfes/seller-inbound/`) |
-| MCP (read-only, Streamable HTTP) | `cmd/mcp` | `:8090`, `/mcp`; Kong route `/api/mcp/seller-inbound` | the warehouse ops agent (`http://seller-inbound-mcp.warehouse-systems.svc.cluster.local:8090/mcp`) |
-| A2A (read-only, JSON-RPC 2.0) | `cmd/a2a` | `:8093`, `/` and `/a2a`; Agent Card `/.well-known/agent-card.json`; Kong route `/api/a2a/seller-inbound` | any delegating agent |
+| REST seller API | `cmd/api` | `:8080`; Kong route `/api/customer-returns` with the prefix stripped (`warehouse-infra`) | sellers, the console remote `customer_returns_mfe` (`web/`, served at `/mfes/customer-returns/`) |
+| MCP (read-only, Streamable HTTP) | `cmd/mcp` | `:8090`, `/mcp`; Kong route `/api/mcp/customer-returns` | the warehouse ops agent (`http://customer-returns-mcp.warehouse-systems.svc.cluster.local:8090/mcp`) |
+| A2A (read-only, JSON-RPC 2.0) | `cmd/a2a` | `:8093`, `/` and `/a2a`; Agent Card `/.well-known/agent-card.json`; Kong route `/api/a2a/customer-returns` | any delegating agent |
 
 All three are unauthenticated. See [API reference](/docs/api-reference) and [MCP tools](/docs/mcp/tools).
 
@@ -104,7 +104,7 @@ All three are unauthenticated. See [API reference](/docs/api-reference) and [MCP
   topics. Per the design the fleet reads a shipment's carton manifest through the Vendor API of vendor-connectivity only
   (README and `CLAUDE.md`: this service belongs to the retail network, not to the fleet). Nothing in this repository
   references a fleet service.
-- **The vendor.** A vendor never calls seller-inbound; its carton-level receipt reaches this service only as
+- **The vendor.** A vendor never calls customer-returns; its carton-level receipt reaches this service only as
   `InboundReceiptSubmitted` from vendor-connectivity. The OpenAPI contract says the same.
 - **Synchronous reads of node-topology or offer-availability.** None: local read models only.
 - **Outbound A2A or MCP clients.** None. This context is delegated to and never delegates.
