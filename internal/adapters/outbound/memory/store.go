@@ -199,9 +199,8 @@ func NewClockAtNow() *Clock {
 
 // SequentialIDs mints ret-1, ret-2, ... in call order.
 type SequentialIDs struct {
-	mu  sync.Mutex
-	n   int
-	now func() string
+	mu sync.Mutex
+	n  int
 }
 
 // NewSequentialIDs builds the generator.
