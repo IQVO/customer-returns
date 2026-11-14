@@ -33,11 +33,14 @@ type Authorized struct {
 	AuthorizedAt      time.Time
 }
 
+// entityName is the single entity segment of every event of this context.
+const entityName = "returnauthorization"
+
 // EventName implements shared.Event.
 func (Authorized) EventName() string { return "ReturnAuthorized" }
 
 // Entity implements shared.Event.
-func (Authorized) Entity() string { return "returnauthorization" }
+func (Authorized) Entity() string { return entityName }
 
 // SubjectID implements shared.Event.
 func (e Authorized) SubjectID() string { return string(e.AuthorizationID) }
@@ -55,7 +58,7 @@ type LabelIssued struct {
 func (LabelIssued) EventName() string { return "ReturnLabelIssued" }
 
 // Entity implements shared.Event.
-func (LabelIssued) Entity() string { return "returnauthorization" }
+func (LabelIssued) Entity() string { return entityName }
 
 // SubjectID implements shared.Event.
 func (e LabelIssued) SubjectID() string { return string(e.AuthorizationID) }
@@ -82,7 +85,7 @@ type Completed struct {
 func (Completed) EventName() string { return "ReturnCompleted" }
 
 // Entity implements shared.Event.
-func (Completed) Entity() string { return "returnauthorization" }
+func (Completed) Entity() string { return entityName }
 
 // SubjectID implements shared.Event.
 func (e Completed) SubjectID() string { return string(e.AuthorizationID) }
@@ -99,7 +102,7 @@ type Cancelled struct {
 func (Cancelled) EventName() string { return "ReturnCancelled" }
 
 // Entity implements shared.Event.
-func (Cancelled) Entity() string { return "returnauthorization" }
+func (Cancelled) Entity() string { return entityName }
 
 // SubjectID implements shared.Event.
 func (e Cancelled) SubjectID() string { return string(e.AuthorizationID) }
@@ -133,10 +136,7 @@ func labelIssuedEvent(a *ReturnAuthorization, trackingNumber string, at time.Tim
 func completedEvent(a *ReturnAuthorization, lines []OutcomeLine, nodeID string, at time.Time) Completed {
 	out := make([]CompletedLine, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, CompletedLine{
-			CatalogItemID: l.CatalogItemID, OwnerRef: l.OwnerRef,
-			QtyRestockable: l.QtyRestockable, QtyUnsellable: l.QtyUnsellable,
-		})
+		out = append(out, CompletedLine(l))
 	}
 	return Completed{
 		Header:          shared.Header{Version: a.version, At: at},

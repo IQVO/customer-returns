@@ -103,22 +103,32 @@ func checkDispositionRules(s Snapshot) error {
 	if s.Disposition == OriginNode && s.OriginNodeID != "" && s.OriginNodeID != s.DestinationNodeID {
 		return fmt.Errorf("ORIGIN_NODE destination must be the origin node")
 	}
-	if s.Method == MethodPickup {
-		if s.Disposition == KeepDisposition {
-			return fmt.Errorf("PICKUP requires a disposition other than KEEP")
-		}
-		if s.PickupWindowStart.IsZero() || s.PickupWindowEnd.IsZero() {
-			return fmt.Errorf("PICKUP requires a pickup window")
-		}
-		if !s.PickupWindowStart.Before(s.PickupWindowEnd) {
-			return fmt.Errorf("pickup window start must be before end")
-		}
-		if s.PickupWindowStart.Before(s.AuthorizedAt) || s.PickupWindowEnd.After(s.ExpiresAt) {
-			return fmt.Errorf("pickup window must be inside [authorizedAt, expiresAt]")
-		}
+	if err := checkPickupRules(s); err != nil {
+		return err
 	}
 	if s.Method == MethodDropOff && (!s.PickupWindowStart.IsZero() || !s.PickupWindowEnd.IsZero()) {
 		return fmt.Errorf("DROP_OFF carries no pickup window")
+	}
+	return nil
+}
+
+// checkPickupRules: PICKUP excludes KEEP, needs a window, and the window sits
+// inside [authorizedAt, expiresAt].
+func checkPickupRules(s Snapshot) error {
+	if s.Method != MethodPickup {
+		return nil
+	}
+	if s.Disposition == KeepDisposition {
+		return fmt.Errorf("PICKUP requires a disposition other than KEEP")
+	}
+	if s.PickupWindowStart.IsZero() || s.PickupWindowEnd.IsZero() {
+		return fmt.Errorf("PICKUP requires a pickup window")
+	}
+	if !s.PickupWindowStart.Before(s.PickupWindowEnd) {
+		return fmt.Errorf("pickup window start must be before end")
+	}
+	if s.PickupWindowStart.Before(s.AuthorizedAt) || s.PickupWindowEnd.After(s.ExpiresAt) {
+		return fmt.Errorf("pickup window must be inside [authorizedAt, expiresAt]")
 	}
 	return nil
 }

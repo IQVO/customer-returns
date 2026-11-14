@@ -79,7 +79,7 @@ func (s *Service) expireAndReject(ctx context.Context, a *returnauthorization.Re
 	if !a.Expired(s.d.Clock.Now()) {
 		return false, nil
 	}
-	if _, err := s.expireLazily(ctx, a); err != nil {
+	if err := s.expireLazily(ctx, a); err != nil {
 		return true, err
 	}
 	return true, nil

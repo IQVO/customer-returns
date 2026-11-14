@@ -71,35 +71,7 @@ func TestNoPIIShapedIdentifiersAnywhere(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if e.IsDir() {
-				return nil
-			}
-			if strings.HasSuffix(p, "_test.go") {
-				// Test fixtures may quote a sibling's contract to prove it is
-				// clean; the production surface is what must stay PII-free.
-				return nil
-			}
-			scanned := false
-			for _, ext := range piiScanExt {
-				if strings.HasSuffix(p, ext) {
-					scanned = true
-					break
-				}
-			}
-			if !scanned {
-				return nil
-			}
-			raw, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			body := string(raw)
-			for _, token := range piiDenylist {
-				if strings.Contains(body, token) {
-					hits = append(hits, piiViolation(p, token))
-				}
-			}
-			return nil
+			return scanFileForPII(p, e, &hits)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -108,6 +80,38 @@ func TestNoPIIShapedIdentifiersAnywhere(t *testing.T) {
 	if len(hits) > 0 {
 		t.Fatalf("the PII sensor found %d violation(s):\n%s", len(hits), strings.Join(hits, ""))
 	}
+}
+
+// scanFileForPII scans one walked file for denylist tokens; _test.go fixtures
+// are exempt (a sibling's contract may be quoted to prove it is clean).
+func scanFileForPII(p string, e os.DirEntry, hits *[]string) error {
+	if e.IsDir() {
+		return nil
+	}
+	if strings.HasSuffix(p, "_test.go") {
+		return nil
+	}
+	scanned := false
+	for _, ext := range piiScanExt {
+		if strings.HasSuffix(p, ext) {
+			scanned = true
+			break
+		}
+	}
+	if !scanned {
+		return nil
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	body := string(raw)
+	for _, token := range piiDenylist {
+		if strings.Contains(body, token) {
+			*hits = append(*hits, piiViolation(p, token))
+		}
+	}
+	return nil
 }
 
 // TestReasonStaysAnEnum pins the other half of the PII rule: the return reason

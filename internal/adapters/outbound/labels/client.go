@@ -22,9 +22,8 @@ import (
 // Client is the ports.LabelIssuer over the shipping context's future
 // POST /return-labels route.
 type Client struct {
-	base    string
-	http    *http.Client
-	newUUID func() string
+	base string
+	http *http.Client
 }
 
 // NewClient builds the client. An empty base URL keeps the client disabled

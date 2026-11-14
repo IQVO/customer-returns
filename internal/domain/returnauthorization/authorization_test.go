@@ -230,11 +230,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 }
 
 func sameSnapshot(x, y Snapshot) bool {
-	if x.ID != y.ID || x.OrderID != y.OrderID || x.GroupNo != y.GroupNo || x.State != y.State ||
-		x.Disposition != y.Disposition || x.Method != y.Method || x.Version != y.Version ||
-		x.DestinationNodeID != y.DestinationNodeID || x.OriginNodeID != y.OriginNodeID ||
-		!x.AuthorizedAt.Equal(y.AuthorizedAt) || !x.ExpiresAt.Equal(y.ExpiresAt) ||
-		!x.ClosedAt.Equal(y.ClosedAt) || len(x.Lines) != len(y.Lines) || len(x.TrackingNumbers) != len(y.TrackingNumbers) {
+	if !sameSnapshotHeader(x, y) || len(x.Lines) != len(y.Lines) || len(x.TrackingNumbers) != len(y.TrackingNumbers) {
 		return false
 	}
 	for i := range x.Lines {
@@ -248,4 +244,13 @@ func sameSnapshot(x, y Snapshot) bool {
 		}
 	}
 	return true
+}
+
+// sameSnapshotHeader: the scalar fields every round-trip must preserve.
+func sameSnapshotHeader(x, y Snapshot) bool {
+	return x.ID == y.ID && x.OrderID == y.OrderID && x.GroupNo == y.GroupNo && x.State == y.State &&
+		x.Disposition == y.Disposition && x.Method == y.Method && x.Version == y.Version &&
+		x.DestinationNodeID == y.DestinationNodeID && x.OriginNodeID == y.OriginNodeID &&
+		x.AuthorizedAt.Equal(y.AuthorizedAt) && x.ExpiresAt.Equal(y.ExpiresAt) &&
+		x.ClosedAt.Equal(y.ClosedAt)
 }

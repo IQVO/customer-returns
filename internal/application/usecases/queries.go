@@ -106,23 +106,20 @@ func (s *Service) CancelReturn(ctx context.Context, req requests.CancelReturn) (
 }
 
 // expireLazily cancels an expired AUTHORIZED authorization in place (ADR 0002:
-// no sweeper; the next touch is the expiry) and reports whether it did.
-func (s *Service) expireLazily(ctx context.Context, a *returnauthorization.ReturnAuthorization) (bool, error) {
+// no sweeper; the next touch is the expiry).
+func (s *Service) expireLazily(ctx context.Context, a *returnauthorization.ReturnAuthorization) error {
 	now := s.d.Clock.Now()
 	if !a.Expired(now) {
-		return false, nil
+		return nil
 	}
 	if err := a.Cancel(returnauthorization.CancelExpired, now); err != nil {
-		return false, err
+		return err
 	}
 	events := a.Events()
 	if err := s.d.Authorizations.Save(ctx, a); err != nil {
-		return false, err
+		return err
 	}
-	if err := s.d.Outbox.Append(ctx, events...); err != nil {
-		return false, err
-	}
-	return true, nil
+	return s.d.Outbox.Append(ctx, events...)
 }
 
 // ErrAuthorizationExpired is what the label use case returns when the lazy

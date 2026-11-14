@@ -17,7 +17,6 @@ import (
 var (
 	errMissingDatabaseURL = errors.New("DATABASE_URL is required: this context runs on real Postgres, there is no in-memory mode")
 	errMissingBrokers     = errors.New("KAFKA_BROKERS is required: this context runs on real Kafka (outbox relay, consumers, /readyz)")
-	errMissingSsccPrefix  = errors.New("SSCC_COMPANY_PREFIX is required: the network issues SSCCs from its own GS1 company prefix")
 )
 
 // consumerGroups are the mandatory consumer group variables.

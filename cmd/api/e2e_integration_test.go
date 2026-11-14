@@ -529,7 +529,6 @@ type world struct {
 
 	events []string // the event names in published order
 
-	diagnostics string // what the last waitFor poll saw
 }
 
 // phaseSetup feeds the two read models through the input topics: an ACTIVE

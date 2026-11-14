@@ -62,11 +62,6 @@ func newAPIWithLogger(t *testing.T, logger *slog.Logger) *api {
 	return &api{t: t, store: store, clock: clock, srv: srv}
 }
 
-// newAPILogged is the harness telemetry tests use (a logger they can read).
-func newAPILogged(t *testing.T, logger *slog.Logger) *api {
-	return newAPIWithLogger(t, logger)
-}
-
 func (e *api) do(method, path, body string) {
 	e.t.Helper()
 	var reader *bytes.Reader
@@ -109,16 +104,6 @@ func (e *api) slug() string {
 	}
 	_ = json.Unmarshal([]byte(e.body), &p)
 	return p.Type
-}
-
-func (e *api) json() map[string]any {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	var out map[string]any
-	if err := json.Unmarshal([]byte(e.body), &out); err != nil {
-		e.t.Fatalf("body is not JSON: %q (%v)", e.body, err)
-	}
-	return out
 }
 
 func (e *api) field(path string) (any, bool) {

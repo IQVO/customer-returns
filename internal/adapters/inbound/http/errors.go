@@ -35,13 +35,19 @@ var (
 // single REST error table of ADR 0002. The slug is the kebab-case of the Err
 // name (the shared types are not-found, illegal-transition, concurrent-update
 // and validation-failed).
+// validationFailed is the problem title of every validation refusal.
+const (
+	validationFailedTitle = "Validation failed"
+	validationFailedSlug  = "validation-failed"
+)
+
 var problemCatalogue = []struct {
 	err error
 	p   problem
 }{
-	{errMalformedRequest, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}},
-	{shared.ErrValidation, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}},
-	{ports.ErrUnknownLine, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}},
+	{errMalformedRequest, problem{http.StatusUnprocessableEntity, validationFailedSlug, validationFailedTitle}},
+	{shared.ErrValidation, problem{http.StatusUnprocessableEntity, validationFailedSlug, validationFailedTitle}},
+	{ports.ErrUnknownLine, problem{http.StatusUnprocessableEntity, validationFailedSlug, validationFailedTitle}},
 	{ports.ErrGroupNotShipped, problem{http.StatusUnprocessableEntity, "group-not-shipped", "The order group is not shipped or delivered yet; retry later with the same Idempotency-Key"}},
 	{returnauthorization.ErrNoReturnDestination, problem{http.StatusUnprocessableEntity, "no-return-destination", "No returns centre serves the region and no origin node is known; retry later"}},
 	{ports.ErrLabelUnavailable, problem{http.StatusUnprocessableEntity, "label-unavailable", "The reverse-label route is not available yet; retry later"}},

@@ -26,7 +26,7 @@ func (s *Service) OnOutcomeSubmitted(ctx context.Context, eventID string, e requ
 		if err != nil {
 			return err
 		}
-		if _, err := s.expireLazily(ctx, a); err != nil {
+		if err := s.expireLazily(ctx, a); err != nil {
 			return err
 		}
 		known, unexpected := splitOutcome(a, e.Lines)
@@ -36,23 +36,26 @@ func (s *Service) OnOutcomeSubmitted(ctx context.Context, eventID string, e requ
 		}
 		if err := a.ApplyOutcome(known, e.NodeID, e.ReceivedAt); err != nil {
 			if errors.Is(err, shared.ErrValidation) {
-				return s.d.Outcomes.Record(ctx, factOf(e, allUnexpected(e)))
+				return s.recordUnexpected(ctx, e)
 			}
 			return err
 		}
-		events := a.Events()
-		if err := s.d.Authorizations.Save(ctx, a); err != nil {
-			return err
-		}
-		if err := s.d.Outcomes.Record(ctx, factOf(e, unexpected)); err != nil {
-			return err
-		}
-		if err := s.d.Outbox.Append(ctx, events...); err != nil {
-			return err
-		}
 		s.d.Metrics.OutcomeApplied(ctx, len(unexpected))
-		return nil
+		return s.commitOutcome(ctx, a, factOf(e, unexpected))
 	})
+}
+
+// commitOutcome persists the applied authorization, its outcome fact and the
+// outbox batch as one consume step.
+func (s *Service) commitOutcome(ctx context.Context, a *returnauthorization.ReturnAuthorization, fact requests.OutcomeFact) error {
+	events := a.Events()
+	if err := s.d.Authorizations.Save(ctx, a); err != nil {
+		return err
+	}
+	if err := s.d.Outcomes.Record(ctx, fact); err != nil {
+		return err
+	}
+	return s.d.Outbox.Append(ctx, events...)
 }
 
 // splitOutcome divides the submitted lines into the ones this authorization
@@ -126,4 +129,10 @@ func splitFactLines(e requests.OutcomeSubmitted, unexpected []requests.OutcomeFa
 		})
 	}
 	return known, unexpected
+}
+
+// recordUnexpected stores the outcome as an all-unexpected fact (the
+// authorization refused the lines).
+func (s *Service) recordUnexpected(ctx context.Context, e requests.OutcomeSubmitted) error {
+	return s.d.Outcomes.Record(ctx, factOf(e, allUnexpected(e)))
 }

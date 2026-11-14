@@ -14,8 +14,6 @@ import (
 
 var at = time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
 
-func price(c int64) *int64 { return &c }
-
 func authorizedEvent() returnauthorization.Authorized {
 	return returnauthorization.Authorized{
 		Header:          shared.Header{Version: 1, At: at},

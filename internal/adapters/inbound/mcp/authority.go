@@ -26,6 +26,6 @@ const (
 )
 
 // authorityMeta is the Meta a tool registers to declare its authority level.
-func authorityMeta(level string) mcp.Meta { //nolint:unparam // every tool here is L1; the parameter keeps the fleet's pinned declaration shape
+func authorityMeta(level string) mcp.Meta {
 	return mcp.Meta{authorityMetaKey: level}
 }

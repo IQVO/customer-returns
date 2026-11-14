@@ -4,7 +4,6 @@
 package kafka
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -192,13 +191,4 @@ func cancelledPayload(e returnauthorization.Cancelled) wireCancelled {
 		AuthorizationID: string(e.AuthorizationID), Reason: string(e.Reason),
 		CancelledAt: rfc3339(e.CancelledAt),
 	}
-}
-
-// wireJSON is the test hook the golden tests use to render a payload.
-func wireJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	return b
 }

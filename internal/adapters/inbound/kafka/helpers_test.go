@@ -3,7 +3,6 @@ package kafka_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -100,27 +99,6 @@ func (r *fakeReader) commits() int {
 	return n
 }
 
-// fakeDLQWriter records every message WriteMessages publishes.
-type fakeDLQWriter struct {
-	mu   sync.Mutex
-	msgs []kafkago.Message
-}
-
-func (w *fakeDLQWriter) WriteMessages(_ context.Context, msgs ...kafkago.Message) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.msgs = append(w.msgs, msgs...)
-	return nil
-}
-
-func (w *fakeDLQWriter) Close() error { return nil }
-
-func (w *fakeDLQWriter) published() []kafkago.Message {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return append([]kafkago.Message(nil), w.msgs...)
-}
-
 // runUntilCommits runs c.Run until the reader saw `want` commits (or fails
 // after 10s), then cancels and returns Run's error.
 func runUntilCommits(t *testing.T, c *kafkaconsumer.Consumer, reader *fakeReader, want int) error {
@@ -149,5 +127,3 @@ func runUntilCommits(t *testing.T, c *kafkaconsumer.Consumer, reader *fakeReader
 		return nil
 	}
 }
-
-func isCancel(err error) bool { return errors.Is(err, context.Canceled) }
