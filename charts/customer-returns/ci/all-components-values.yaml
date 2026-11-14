@@ -11,9 +11,10 @@ config:
   outboxRelayInterval: "500ms"
   outboxMaxAttempts: 20
   shutdownDrainDelay: "5s"
-  nodeConsumerGroup: "customer-returns-node"
-  catalogConsumerGroup: "customer-returns-catalog"
-  receiptConsumerGroup: "customer-returns-receipt"
+  orderConsumerGroup: "customer-returns-order"
+  topologyConsumerGroup: "customer-returns-topology"
+  sourcingConsumerGroup: "customer-returns-sourcing"
+  vendorConsumerGroup: "customer-returns-vendor"
 gatewayApi:
   enabled: true
   parentRefs:
@@ -42,5 +43,3 @@ a2a:
       - name: warehouse-gateway
         namespace: kong
         sectionName: http
-frontend:
-  enabled: true

@@ -276,30 +276,3 @@ a2a:
 # shell mounts under /customer-returns/*. OFF by default: the api alone is the
 # default runtime. It needs no database and no Kafka, and this chart never
 # routes it -- the web gateway owns the public /mfes/customer-returns/ path.
-frontend:
-  enabled: false
-  replicaCount: 1
-  image:
-    repository: ghcr.io/iqvo/customer-returns-frontend
-    pullPolicy: IfNotPresent
-    tag: ""
-  service:
-    port: 80
-    targetPort: 8080
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 101
-    runAsGroup: 101
-    fsGroup: 101
-  securityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: true
-    capabilities:
-      drop: ["ALL"]
-  resources:
-    limits:
-      cpu: 200m
-      memory: 128Mi
-    requests:
-      cpu: 50m
-      memory: 64Mi

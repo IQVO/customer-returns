@@ -9,8 +9,8 @@ Follow this order: domain first, adapter last. A handler written before the inva
 validates nothing and gets bypassed.
 
 The worked example is the write `POST /inbound-shipments/{id}/cartons`:
-`internal/domain/inboundshipment/carton.go` `AddCarton` ->
-`internal/application/usecases/shipments.go` `AddCarton` ->
+`internal/domain/returnauthorization/authorization.go` `AddCarton` ->
+`internal/application/usecases/authorize.go` `AddCarton` ->
 `internal/adapters/inbound/http/handlers.go` `handleAddCarton`. The read-side example is
 `GET /inbound-shipments/{id}/labels` (`shipments.go` `GetLabels` -> `handleGetLabels`).
 

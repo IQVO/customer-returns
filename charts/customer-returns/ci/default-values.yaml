@@ -5,6 +5,7 @@ database:
 kafka:
   brokers: "kafka.example.invalid:9092"
 config:
-  nodeConsumerGroup: "customer-returns-node"
-  catalogConsumerGroup: "customer-returns-catalog"
-  receiptConsumerGroup: "customer-returns-receipt"
+  orderConsumerGroup: "customer-returns-order"
+  topologyConsumerGroup: "customer-returns-topology"
+  sourcingConsumerGroup: "customer-returns-sourcing"
+  vendorConsumerGroup: "customer-returns-vendor"

@@ -142,3 +142,73 @@ never derive it from the pod name.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The mcp component's fullname (<release>-customer-returns-mcp): the mcp
+Deployment and Service.
+*/}}
+{{- define "customer-returns.mcpFullname" -}}
+{{- include "customer-returns.fullname" . }}-mcp
+{{- end }}
+
+{{/*
+The a2a component's fullname (<release>-customer-returns-a2a): the a2a
+Deployment and Service.
+*/}}
+{{- define "customer-returns.a2aFullname" -}}
+{{- include "customer-returns.fullname" . }}-a2a
+{{- end }}
+
+{{/*
+No mode switch, no second publisher, no duplicated env: the chart renders
+otel and environment vars itself and refuses anything that would shadow it.
+*/}}
+{{- define "customer-returns.requireNoInMemoryEnv" -}}
+{{- $owned := list "ENVIRONMENT" "SERVICE_VERSION" "OTEL_SERVICE_NAME" "OTEL_EXPORTER_OTLP_ENDPOINT" -}}
+{{- range .Values.extraEnv -}}
+{{- $name := toString .name -}}
+{{- if has $name $owned -}}
+{{- fail (printf "extraEnv sets %s: the chart renders it itself (otel.*, environment, image.tag); set the value there, never twice." $name) -}}
+{{- end -}}
+{{- $value := toString (default "" .value) -}}
+{{- if and (eq $name "EVENT_PUBLISHER") (ne $value "kafka") -}}
+{{- fail (printf "extraEnv sets EVENT_PUBLISHER=%s: the only publisher is \"kafka\"." $value) -}}
+{{- end -}}
+{{- if and (eq $name "ORDER_CONSUMER_GROUP") (eq $value "in-memory") -}}
+{{- fail (printf "extraEnv sets %s=%s: in-memory is not a group id; the consumers run on real Kafka." $name $value) -}}
+{{- end -}}
+{{- if and (hasSuffix "_MODE" $name) (ne $value "enforcing") -}}
+{{- fail (printf "extraEnv sets %s=%s: *_MODE variables are not supported; customer-returns runs on real Postgres and real Kafka only and has no mode switch." $name $value) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The drain delay must be whole seconds and the pod's grace period must cover it
+(SHUTDOWN_DRAIN_DELAY + HTTP drain 10s + consumers 10s + margin).
+*/}}
+{{- define "customer-returns.requireGracePeriod" -}}
+{{- $drain := .Values.config.shutdownDrainDelay | toString -}}
+{{- if eq $drain "" -}}{{/* unset: the binary default is 5s and the check runs on it */}}
+{{- $drain = "5s" -}}
+{{- else if not (regexMatch "^[0-9]+s$" $drain) -}}
+{{- fail (printf "config.shutdownDrainDelay is %q: use whole seconds such as \"5s\" so the chart can check terminationGracePeriodSeconds against it." $drain) -}}
+{{- end -}}
+{{- $need := add (int (trimSuffix "s" $drain)) 30 -}}
+{{- if lt $need 40 -}}{{- $need = 40 -}}{{- end -}}
+{{- if lt (int .Values.terminationGracePeriodSeconds) $need -}}
+{{- fail (printf "terminationGracePeriodSeconds is %v: want at least %v (SHUTDOWN_DRAIN_DELAY %vs + HTTP drain 10s + consumers 10s + margin); a shorter grace period SIGKILLs the consumers mid-drain." .Values.terminationGracePeriodSeconds $need $drain) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Every render-time requirement of the real runtime, in one include. The api
+Deployment includes it, so a mis-set release fails `helm template` / `helm install`.
+*/}}
+{{- define "customer-returns.requireRealRuntime" -}}
+{{- include "customer-returns.requireDatabase" . -}}
+{{- include "customer-returns.requireKafka" . -}}
+{{- include "customer-returns.requireConsumerGroups" . -}}
+{{- include "customer-returns.requireNoInMemoryEnv" . -}}
+{{- include "customer-returns.requireGracePeriod" . -}}
+{{- end -}}

@@ -13,19 +13,20 @@ release=customer-returns
 api_go=($(ls "$repo_dir"/cmd/api/*.go | grep -v -E '_test\.go$|/telemetry\.go$'))
 
 # Dummy values, no password: the chart refuses to render without a database
-# source, Kafka brokers, the three consumer groups and the SSCC company prefix.
-# None is ever dialled.
-groups=(nodeConsumerGroup:customer-returns-node
-  catalogConsumerGroup:customer-returns-catalog
-  receiptConsumerGroup:customer-returns-receipt)
-urls=(ssccCompanyPrefix:0614141)
+# source and Kafka brokers. The labels URL is optional (empty = label calls
+# answer 422 label-unavailable). None of it is ever dialled.
+groups=(orderConsumerGroup:customer-returns-order
+  topologyConsumerGroup:customer-returns-topology
+  sourcingConsumerGroup:customer-returns-sourcing
+  vendorConsumerGroup:customer-returns-vendor)
+urls=()
 base=(--set database.url=postgres://u@example.invalid:5432/db
   --set kafka.brokers=kafka.example.invalid:9092)
-for g in "${groups[@]}" "${urls[@]}"; do base+=(--set "config.${g%%:*}=${g#*:}"); done
+for g in "${groups[@]}" ${urls[@]+"${urls[@]}"}; do base+=(--set "config.${g%%:*}=${g#*:}"); done
 # Every optional value set, so every env var the binary can read is rendered.
 everything=(--set config.outboxRelayInterval=2s --set config.shutdownDrainDelay=8s
   --set terminationGracePeriodSeconds=60
-  --set config.ssccExtensionDigit=3)
+  --set config.shippingLabelsUrl=http://shipping-and-tracking.example.invalid/api)
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -98,10 +99,10 @@ for kv in 'KAFKA_BROKERS=kafka.example.invalid:9092' 'EVENT_PUBLISHER=kafka' \
   grep -q "^  ${kv%%=*}: \"${kv#*=}\"" <<<"$configmap" || fail "the ConfigMap does not carry $kv"
 done
 # Optional values are absent by default (the binary's own defaults apply) and rendered when set.
-for var in SSCC_EXTENSION_DIGIT OUTBOX_RELAY_INTERVAL SHUTDOWN_DRAIN_DELAY; do
+for var in SHIPPING_LABELS_URL OUTBOX_RELAY_INTERVAL SHUTDOWN_DRAIN_DELAY; do
   if grep -q "name: $var\$" <<<"$api_deployment"; then fail "$var must not be rendered by default"; fi
 done
-for kv in SSCC_EXTENSION_DIGIT=3 OUTBOX_RELAY_INTERVAL=2s SHUTDOWN_DRAIN_DELAY=8s; do
+for kv in OUTBOX_RELAY_INTERVAL=2s SHUTDOWN_DRAIN_DELAY=8s; do
   [[ "$(env_value "$full_deployment" "${kv%%=*}")" == "${kv#*=}" ]] || fail "the api Deployment does not render $kv when set"
 done
 # DATABASE_URL comes from a Secret, never from the ConfigMap; MIGRATIONS_DATABASE_URL is optional.
@@ -173,7 +174,7 @@ mandatory_except() { # mandatory_except <database|kafka|<config key>>
   local skip="$1" out=()
   [[ "$skip" == database ]] || out+=(--set database.url=postgres://u@h/db)
   [[ "$skip" == kafka ]] || out+=(--set kafka.brokers=k:9092)
-  for g in "${groups[@]}" "${urls[@]}"; do
+  for g in "${groups[@]}" ${urls[@]+"${urls[@]}"}; do
     [[ "${g%%:*}" == "$skip" ]] || out+=(--set "config.${g%%:*}=${g#*:}")
   done
   printf '%s\n' "${out[@]}"
@@ -185,9 +186,9 @@ refusal_without() { # refusal_without <value to leave out> <needle>
 }
 refusal_without database "database.url or database.existingSecret"
 refusal_without kafka "kafka.brokers"
-for g in "${groups[@]}" "${urls[@]}"; do refusal_without "${g%%:*}" "config.${g%%:*}"; done
+for g in "${groups[@]}" ${urls[@]+"${urls[@]}"}; do refusal_without "${g%%:*}" "config.${g%%:*}"; done
 # An explicitly blank value refuses too.
-for g in "${groups[@]}" "${urls[@]}"; do
+for g in "${groups[@]}" ${urls[@]+"${urls[@]}"}; do
   expect_refusal "blank ${g%%:*}" "config.${g%%:*}" "${base[@]}" --set "config.${g%%:*}="
 done
 expect_refusal "the log publisher" "config.eventPublisher" "${base[@]}" --set config.eventPublisher=log
@@ -328,23 +329,11 @@ if helm template "$release" "$chart_dir" "${base[@]}" --set a2a.route.enabled=tr
   fail "a2a.route.enabled without a2a.enabled must render nothing"
 fi
 
-# --- optional component: the console web remote (ADR 0007) ---------------------
-# The web remote: its own nginx Deployment + ClusterIP Service, no DB/Kafka
-# env, and no route in this chart (the web gateway owns /mfes/customer-returns/).
-frontend_dep="$(helm template "$release" "$chart_dir" "${base[@]}" --set frontend.enabled=true --show-only templates/frontend-deployment.yaml)"
-frontend_svc="$(helm template "$release" "$chart_dir" "${base[@]}" --set frontend.enabled=true --show-only templates/frontend-service.yaml)"
-grep -q 'app.kubernetes.io/component: frontend' <<<"$frontend_dep" || fail "the frontend Deployment was not rendered with frontend.enabled=true"
-grep -q 'type: ClusterIP' <<<"$frontend_svc" || fail "the frontend Service must stay ClusterIP"
-if grep -Eq 'name: (DATABASE_URL|KAFKA_BROKERS)$' <<<"$frontend_dep"; then fail "the frontend Deployment must not get database/Kafka env"; fi
-if grep -q 'configMapRef:' <<<"$frontend_dep"; then fail "frontend-deployment.yaml must not mount the api ConfigMap"; fi
 
 # ALL components render TOGETHER (the ci/all-components-values.yaml file).
-together="$(helm template "$release" "$chart_dir" "${base[@]}" --set mcp.enabled=true --set a2a.enabled=true --set frontend.enabled=true)"
-for component in api mcp a2a frontend; do
+together="$(helm template "$release" "$chart_dir" "${base[@]}" --set mcp.enabled=true --set a2a.enabled=true)"
+for component in api mcp a2a; do
   grep -q "app.kubernetes.io/component: $component\$" <<<"$together" || fail "the full render lacks the $component component"
 done
-if grep -E 'kind: (Ingress|HTTPRoute)' <<<"$together" | grep -q frontend; then
-  fail "frontend routing must not live in this chart"
-fi
 
 echo "PASS: customer-returns chart render assertions"
