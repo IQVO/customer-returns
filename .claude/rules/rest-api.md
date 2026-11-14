@@ -9,43 +9,50 @@ paths:
 
 Route -> use case, kept in sync with `apis/openapi.yaml`; routes are registered in
 `internal/adapters/inbound/http/server.go` (`NewRouter`), handlers are in `handlers.go`, and
-`cmd/api/main.go` wires the `Server`. The seller is named in the request body and checked
-against its account (no authentication, consistent with the fleet):
+`cmd/api/main.go` wires the `Server`. No authentication (fleet decision): the storefront is
+the only caller and names the order in the body; the disposition is decided HERE, never by
+the caller.
 
-- `POST /sellers` -> `OnboardSeller` (201)
-- `POST /sellers/{id}/suspensions` -> `SuspendSeller`; `POST /sellers/{id}/reinstatements` -> `ReinstateSeller`
-- `POST /inbound-plans` -> `CreateInboundPlan` (201); `GET /inbound-plans/{planId}` -> `GetInboundPlan`
-- `POST /inbound-plans/{planId}/confirmations` -> `ConfirmInboundPlan`; `/cancellations` -> `CancelInboundPlan`
-- `POST /inbound-plans/{planId}/shipments` -> `CreateInboundShipment` (201)
-- `POST /inbound-shipments/{id}/cartons` -> `AddCarton` (201, carton + label data + `ssccIssued`)
-- `POST /inbound-shipments/{id}/labels` -> `LabelShipment`; `POST /inbound-shipments/{id}/dispatches` -> `ShipInboundShipment`
-- `GET /inbound-shipments/{id}` -> `GetInboundShipment`; `GET /inbound-shipments/{id}/labels` -> `GetLabels`
-  (chi cannot route a `:verb` suffix inside one segment, so the actions of a resource share
-  `/sellers/{sellerAction}`, `/inbound-plans/{planAction}` and `/inbound-shipments/{shipmentAction}`
-  and the handler splits the suffix)
+- `POST /return-authorizations` -> `AuthorizeReturn` (201) — body
+  `{orderId, groupNo, lines[]{lineNo, unitPriceCents?}, reason, method?, pickupWindowStart?, pickupWindowEnd?}`;
+  422 `validation-failed` (malformed body, unknown lineNo, missing lines), 422
+  `group-not-shipped` (the view lags or the group is not SHIPPED/DELIVERED), 422
+  `no-return-destination`
+- `GET /return-authorizations?orderId=&cursor=&limit=` -> `ListReturnAuthorizations`
+  (keyset page `{items, nextCursor}`, newest first, limit 1..100 default 20)
+- `GET /return-authorizations/{authorizationId}` -> `GetReturnAuthorization` (an expired
+  authorization is lazily cancelled by this read)
+- `POST /return-authorizations/{authorizationId}/cancellations` -> `CancelReturn`
+- `POST /return-authorizations/{authorizationId}/labels` -> `IssueLabel` — body `{packageNo}`
+  1..5; calls the shipping context's reverse-label route (ADR 0005); 422
+  `label-unavailable` while that route is not configured
+- `GET /return-authorizations/{id}/events` is deliberately NOT built (audit = the event stream).
 - `GET /healthz` (liveness), `GET /readyz` (drain gate, Postgres ping, Kafka metadata): not business operations.
 
 ## Conventions
 
 - **Errors** are RFC 9457 `application/problem+json`: `type` is a kebab-case slug from
   `problemCatalogue` in `internal/adapters/inbound/http/errors.go` (shared: `not-found` 404,
-  `illegal-transition` 409, `concurrent-update` 409, `validation-failed` 422; one slug per model
-  `Err...`, e.g. `case-qty-mismatches-gtin`, `sscc-not-unique`, `seller-suspended`), plus `title`,
-  `status`, `detail`, `instance`. An unmapped error is an opaque 500 `internal-error`. A new
-  `Err` needs a catalogue row.
+  `illegal-transition` 409, `concurrent-update` 409, `validation-failed` 422; plus
+  `group-not-shipped` 422, `no-return-destination` 422, `label-unavailable` 422,
+  `authorization-expired` 422), with `title`, `status`, `detail`, `instance`. An unmapped
+  error is an opaque 500 `internal-error`. A new `Err` needs a catalogue row.
 - **Idempotency-Key** is required on every write (`idempotency.go`): same key + same request
-  replays the first response, same key + other request is 409 `idempotency-key-reused`, a missing
-  key is 400 `idempotency-key-required`; the key is GLOBAL and replays carry
-  `Idempotency-Replayed: true`; keys live 24 h in `idempotency_keys`. A new write
-  registers through the `write(...)` wrapper in `NewRouter`, never bare `r.Post`.
-- **NUL** (U+0000) is rejected before anything else (`nul.go`): 404 in the path, 400
-  `malformed-request` in the query or body.
+  replays the first response byte for byte, same key + other request is 409
+  `idempotency-key-reused`, a missing key is 400 `idempotency-key-required`, a malformed one
+  400 `idempotency-key-invalid`; the key is GLOBAL (migration `0003`) and replays carry
+  `Idempotency-Replayed: true`; keys live 24 h in `idempotency_keys`. A new write registers
+  through the `write(...)` wrapper in `NewRouter`, never bare `r.Post`.
+- **NUL** (U+0000) is rejected before anything else (`nul.go`): 404 in the path, 422 in the
+  query or body.
 - Bodies are decoded strictly (`decodeJSON`, `response.go`): unknown fields are refused
   (`validation-failed`).
-- Every GTIN and SSCC in `apis/openapi.yaml` and `apis/asyncapi.yaml` examples must carry a correct
-  GS1 check digit.
+- Optional facts are omitted when they do not apply, never defaulted; arrays are always
+  present; timestamps are RFC 3339 UTC; quantities are eaches.
+- **PII**: never accept or return an address, a person's name, a phone number, an e-mail or
+  free text; `reason` is an enum. `unitPriceCents` is echoed to the caller but never
+  published on any event (`internal/architecture/pii_fitness_test.go`).
 - **Handlers hold no business logic**: decode, call a use case, encode the view.
-- **Auth**: none. REST is unauthenticated, as in the rest of the network
-  (`internal/architecture/fitness_test.go` `TestNoAuthMiddlewareReintroduced` keeps it so).
-- Tests: `handlers_test.go` runs the real router over the memory doubles; the real middleware and
-  Postgres are proven by `cmd/api/e2e_integration_test.go`; behaviour by `features/*.feature`.
+- Tests: `handlers_test.go` runs the real router over the memory doubles; the real
+  middleware and Postgres are proven by `cmd/api/e2e_integration_test.go` and
+  `cmd/api/idempotency_integration_test.go`; behaviour by `features/*.feature`.

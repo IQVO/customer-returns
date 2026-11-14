@@ -109,15 +109,13 @@ config:
   # STABLE consumer group ids, service-prefixed, never the pod name: a
   # rescheduled pod must resume from its committed offsets. All REQUIRED (empty
   # = the chart refuses to render, the binary refuses to boot).
-  nodeConsumerGroup: ""              # NODE_CONSUMER_GROUP (node-topology events)
-  catalogConsumerGroup: ""           # CATALOG_CONSUMER_GROUP (offer-availability packaging events)
-  receiptConsumerGroup: ""           # RECEIPT_CONSUMER_GROUP (vendor-connectivity receipt events)
+  orderConsumerGroup: ""             # ORDER_CONSUMER_GROUP (customer-ordering events)
+  topologyConsumerGroup: ""          # TOPOLOGY_CONSUMER_GROUP (node-topology events)
+  sourcingConsumerGroup: ""          # SOURCING_CONSUMER_GROUP (order-sourcing events)
+  vendorConsumerGroup: ""            # VENDOR_CONSUMER_GROUP (vendor-connectivity outcome events)
 
-  # The network's own GS1 company prefix (6 to 11 digits) the SSCCs it issues are
-  # built from. REQUIRED, no default.
-  ssccCompanyPrefix: ""              # SSCC_COMPANY_PREFIX
-  # Extension digit 0..9 of issued SSCCs. Empty = not rendered (binary default 0).
-  ssccExtensionDigit: ""             # SSCC_EXTENSION_DIGIT
+  # The reverse-label route of shipping-and-tracking; empty = label calls answer 422 label-unavailable until it is set.
+  shippingLabelsUrl: ""              # SHIPPING_LABELS_URL
 
 # The chart refuses to render unless database.url or database.existingSecret is
 # set: the service runs on real Postgres only.

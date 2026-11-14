@@ -8,4 +8,3 @@ config:
   nodeConsumerGroup: "customer-returns-node"
   catalogConsumerGroup: "customer-returns-catalog"
   receiptConsumerGroup: "customer-returns-receipt"
-  ssccCompanyPrefix: "0614141"

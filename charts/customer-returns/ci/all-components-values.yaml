@@ -14,8 +14,6 @@ config:
   nodeConsumerGroup: "customer-returns-node"
   catalogConsumerGroup: "customer-returns-catalog"
   receiptConsumerGroup: "customer-returns-receipt"
-  ssccCompanyPrefix: "0614141"
-  ssccExtensionDigit: "3"
 gatewayApi:
   enabled: true
   parentRefs:

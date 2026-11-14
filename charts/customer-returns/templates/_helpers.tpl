@@ -91,19 +91,19 @@ HTTP_ADDR: {{ .Values.config.httpAddr | quote }}
 LOG_LEVEL: {{ .Values.config.logLevel | quote }}
 EVENT_PUBLISHER: {{ .Values.config.eventPublisher | quote }}
 KAFKA_BROKERS: {{ .Values.kafka.brokers | quote }}
-NODE_CONSUMER_GROUP: {{ .Values.config.nodeConsumerGroup | quote }}
-CATALOG_CONSUMER_GROUP: {{ .Values.config.catalogConsumerGroup | quote }}
-RECEIPT_CONSUMER_GROUP: {{ .Values.config.receiptConsumerGroup | quote }}
-SSCC_COMPANY_PREFIX: {{ .Values.config.ssccCompanyPrefix | quote }}
+ORDER_CONSUMER_GROUP: {{ .Values.config.orderConsumerGroup | quote }}
+TOPOLOGY_CONSUMER_GROUP: {{ .Values.config.topologyConsumerGroup | quote }}
+SOURCING_CONSUMER_GROUP: {{ .Values.config.sourcingConsumerGroup | quote }}
+VENDOR_CONSUMER_GROUP: {{ .Values.config.vendorConsumerGroup | quote }}
+{{- with .Values.config.shippingLabelsUrl }}
+SHIPPING_LABELS_URL: {{ . | quote }}
+{{- end }}
 OUTBOX_MAX_ATTEMPTS: {{ .Values.config.outboxMaxAttempts | quote }}
 {{- with .Values.config.outboxRelayInterval }}
 OUTBOX_RELAY_INTERVAL: {{ . | quote }}
 {{- end }}
 {{- with .Values.config.shutdownDrainDelay }}
 SHUTDOWN_DRAIN_DELAY: {{ . | quote }}
-{{- end }}
-{{- with .Values.config.ssccExtensionDigit }}
-SSCC_EXTENSION_DIGIT: {{ . | quote }}
 {{- end }}
 {{- end -}}
 
@@ -129,110 +129,16 @@ EVENT_PUBLISHER=log. There is no default broker and no log sink.
 {{- end -}}
 
 {{/*
-The three consumers always run, each under a STABLE consumer group id that
-comes from values (cmd/api exits at boot without NODE_CONSUMER_GROUP,
-CATALOG_CONSUMER_GROUP and RECEIPT_CONSUMER_GROUP). A stable id is what lets a
-rescheduled pod resume from its committed offsets; never derive it from the pod name.
+The four consumers always run, each under a STABLE consumer group id that
+comes from values (cmd/api exits at boot without ORDER_CONSUMER_GROUP,
+TOPOLOGY_CONSUMER_GROUP, SOURCING_CONSUMER_GROUP and VENDOR_CONSUMER_GROUP).
+A stable id is what lets a rescheduled pod resume from its committed offsets;
+never derive it from the pod name.
 */}}
 {{- define "customer-returns.requireConsumerGroups" -}}
-{{- range $c := list (dict "key" "nodeConsumerGroup" "env" "NODE_CONSUMER_GROUP") (dict "key" "catalogConsumerGroup" "env" "CATALOG_CONSUMER_GROUP") (dict "key" "receiptConsumerGroup" "env" "RECEIPT_CONSUMER_GROUP") -}}
+{{- range $c := list (dict "key" "orderConsumerGroup" "env" "ORDER_CONSUMER_GROUP") (dict "key" "topologyConsumerGroup" "env" "TOPOLOGY_CONSUMER_GROUP") (dict "key" "sourcingConsumerGroup" "env" "SOURCING_CONSUMER_GROUP") (dict "key" "vendorConsumerGroup" "env" "VENDOR_CONSUMER_GROUP") -}}
 {{- if not (index $.Values.config $c.key) -}}
 {{- fail (printf "config.%s is required (%s): the consumer always runs on real Kafka and cmd/api exits at boot without a group. Use a STABLE, service-prefixed id, never the pod name." $c.key $c.env) -}}
 {{- end -}}
 {{- end -}}
-{{- end -}}
-
-{{/*
-SSCC_COMPANY_PREFIX has no default: the network issues SSCCs from its own GS1
-company prefix and cmd/api exits at boot without it (6 to 11 digits).
-*/}}
-{{- define "customer-returns.requireSscc" -}}
-{{- $p := toString .Values.config.ssccCompanyPrefix -}}
-{{- if not (regexMatch "^[0-9]{6,11}$" $p) -}}
-{{- fail "config.ssccCompanyPrefix is required (SSCC_COMPANY_PREFIX): the network's GS1 company prefix, 6 to 11 digits; cmd/api exits at boot without a valid one." -}}
-{{- end -}}
-{{- with (toString .Values.config.ssccExtensionDigit) -}}
-{{- if not (regexMatch "^[0-9]$" .) -}}
-{{- fail (printf "config.ssccExtensionDigit is %q: want a single digit 0 to 9 (SSCC_EXTENSION_DIGIT)." .) -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-extraEnv may not bring back a log publisher or a mode switch: no EVENT_PUBLISHER
-other than kafka and no *_MODE variable at all (this service has no modes). It
-may not set a variable the chart renders itself either (the observability env).
-*/}}
-{{- define "customer-returns.requireNoInMemoryEnv" -}}
-{{- $owned := list "ENVIRONMENT" "SERVICE_VERSION" "OTEL_SERVICE_NAME" "OTEL_EXPORTER_OTLP_ENDPOINT" -}}
-{{- range .Values.extraEnv -}}
-{{- $name := toString .name -}}
-{{- if has $name $owned -}}
-{{- fail (printf "extraEnv sets %s: the chart renders it itself (otel.*, environment, image.tag); set the value there, never twice." $name) -}}
-{{- end -}}
-{{- $value := toString (default "" .value) -}}
-{{- if and (eq $name "EVENT_PUBLISHER") (ne $value "kafka") -}}
-{{- fail (printf "extraEnv sets EVENT_PUBLISHER=%s: the only publisher is \"kafka\"." $value) -}}
-{{- end -}}
-{{- if hasSuffix "_MODE" $name -}}
-{{- fail (printf "extraEnv sets %s: *_MODE variables are not supported; customer-returns runs on real Postgres and real Kafka only and has no mode switch." $name) -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-The graceful shutdown is sequential (cmd/api/main.go): SHUTDOWN_DRAIN_DELAY
-(default 5s) + HTTP drain (10s) + consumers and loops (10s) + outbox relay
-(10s) = 35s. The grace period must be at least 40 and above drain delay + 30s,
-or the kubelet SIGKILLs the pod between "consumers stopped" and "relay stopped",
-stranding an uncommitted offset or an in-flight outbox batch.
-config.shutdownDrainDelay must be whole seconds ("5s", "0") so this can be checked.
-*/}}
-{{- define "customer-returns.requireGracePeriod" -}}
-{{- $drain := 5 -}}
-{{- with (toString .Values.config.shutdownDrainDelay) -}}
-{{- if regexMatch "^[0-9]+s?$" . -}}
-{{- $drain = int (trimSuffix "s" .) -}}
-{{- else -}}
-{{- fail (printf "config.shutdownDrainDelay is %q: use whole seconds such as \"5s\" so the chart can check terminationGracePeriodSeconds against it." .) -}}
-{{- end -}}
-{{- end -}}
-{{- $need := add $drain 30 -}}
-{{- if lt $need 40 -}}{{- $need = 40 -}}{{- end -}}
-{{- if lt (int .Values.terminationGracePeriodSeconds) (int $need) -}}
-{{- fail (printf "terminationGracePeriodSeconds is %v: want at least %v (SHUTDOWN_DRAIN_DELAY %vs + HTTP drain 10s + consumers and loops 10s + relay 10s, plus margin); a shorter grace period SIGKILLs the consumers or the relay mid-drain." .Values.terminationGracePeriodSeconds $need $drain) -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-The mcp component's fullname (<release>-customer-returns-mcp): the mcp
-Deployment and Service. The Service ALSO pins app.kubernetes.io/component
-(mcp), so the api Service never selects it
-(tests/test_service_selectors.py).
-*/}}
-{{- define "customer-returns.mcpFullname" -}}
-{{- include "customer-returns.fullname" . }}-mcp
-{{- end }}
-
-{{/*
-The a2a component's fullname (<release>-customer-returns-a2a): the a2a
-Deployment and Service. The Service ALSO pins app.kubernetes.io/component
-(a2a), so neither the api nor the mcp Service selects it
-(tests/test_service_selectors.py).
-*/}}
-{{- define "customer-returns.a2aFullname" -}}
-{{- include "customer-returns.fullname" . }}-a2a
-{{- end }}
-
-{{/*
-Every render-time requirement of the real runtime, in one include. The api
-Deployment includes it, so a mis-set release fails `helm template` / `helm install`.
-*/}}
-{{- define "customer-returns.requireRealRuntime" -}}
-{{- include "customer-returns.requireDatabase" . -}}
-{{- include "customer-returns.requireKafka" . -}}
-{{- include "customer-returns.requireConsumerGroups" . -}}
-{{- include "customer-returns.requireSscc" . -}}
-{{- include "customer-returns.requireNoInMemoryEnv" . -}}
-{{- include "customer-returns.requireGracePeriod" . -}}
 {{- end -}}

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: customer-returns
-description: Seller Inbound - the seller-facing front door for stock coming into the retail network (SellerAccount, InboundPlan, InboundShipment with SSCC-labelled cartons); publishes events on retailnetwork.customer-returns.events
+description: Customer Returns - the shopper-facing return authorization of the retail network (ReturnAuthorization with its disposition at authorization); publishes events on retailnetwork.customer-returns.events
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

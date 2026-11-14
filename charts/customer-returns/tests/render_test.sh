@@ -67,7 +67,7 @@ slice_env() { # slice_env <go slice variable>
 # shellcheck disable=SC2207
 api_vars=($( { literal_env; slice_env consumerGroups; } | sort -u))
 (( ${#api_vars[@]} >= 12 )) || fail "found only ${#api_vars[@]} env names in cmd/api/main.go; the scan is looking in the wrong place"
-(( $(slice_env consumerGroups | wc -l) == 3 )) || fail "expected 3 consumer groups in cmd/api/main.go, found $(slice_env consumerGroups | wc -l)"
+(( $(slice_env consumerGroups | wc -l) == 4 )) || fail "expected 4 consumer groups in cmd/api/main.go, found $(slice_env consumerGroups | wc -l)"
 full_deployment="$(helm template "$release" "$chart_dir" "${base[@]}" "${everything[@]}" --show-only templates/deployment.yaml)"
 full_configmap="$(helm template "$release" "$chart_dir" "${base[@]}" "${everything[@]}" --show-only templates/configmap.yaml)"
 secret_vars=" DATABASE_URL MIGRATIONS_DATABASE_URL "
@@ -92,8 +92,8 @@ env_value() { # env_value <rendered> <NAME>
   grep -A1 "name: $2\$" <<<"$1" | grep -m1 'value:' | sed -E 's/.*value: "?//; s/"$//'
 }
 for kv in 'KAFKA_BROKERS=kafka.example.invalid:9092' 'EVENT_PUBLISHER=kafka' \
-  'NODE_CONSUMER_GROUP=customer-returns-node' 'CATALOG_CONSUMER_GROUP=customer-returns-catalog' \
-  'RECEIPT_CONSUMER_GROUP=customer-returns-receipt' 'SSCC_COMPANY_PREFIX=0614141'; do
+  'ORDER_CONSUMER_GROUP=customer-returns-order' 'TOPOLOGY_CONSUMER_GROUP=customer-returns-topology' \
+  'SOURCING_CONSUMER_GROUP=customer-returns-sourcing' 'VENDOR_CONSUMER_GROUP=customer-returns-vendor'; do
   [[ "$(env_value "$api_deployment" "${kv%%=*}")" == "${kv#*=}" ]] || fail "the api Deployment does not render $kv"
   grep -q "^  ${kv%%=*}: \"${kv#*=}\"" <<<"$configmap" || fail "the ConfigMap does not carry $kv"
 done

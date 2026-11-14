@@ -7,11 +7,12 @@ paths:
 
 # Cross-service integration events (Kafka)
 
-customer-returns PUBLISHES nine events and CONSUMES eight (ADR 0003, ADR 0004). Published:
-`retailnetwork.customer-returns.events` (the three shipment events other contexts consume) and
-`retailnetwork.customer-returns.analytics` (the six analytics-only events). Consumed:
-`retailnetwork.node-topology.events`, `retailnetwork.offer-availability.events`,
-`retailnetwork.vendor-connectivity.events`. Never produce or consume a `warehouse.*` topic.
+customer-returns PUBLISHES four events on ONE topic and CONSUMES ten from four producers
+(ADR 0003, ADR 0004). Published: `retailnetwork.customer-returns.events` only. Consumed:
+`retailnetwork.customer-ordering.events`, `retailnetwork.node-topology.events`,
+`retailnetwork.order-sourcing.events`, `retailnetwork.vendor-connectivity.events`.
+Never produce or consume a `warehouse.*` topic. The ONE synchronous seam is the shipping
+context's reverse-label HTTP route (ADR 0005); everything else is an event.
 
 ## Events: CloudEvents 1.0 is MANDATORY
 
@@ -26,57 +27,57 @@ content mode. This is a hard rule, not a preference:
   hand-rolled CloudEvent structs. The only producing caller is the encoder
   `internal/adapters/outbound/kafka/encoder.go`.
 - Every message carries the Kafka header `content-type: application/cloudevents+json; charset=UTF-8`.
-  Message key = aggregate id (`sellerId`, `planId`, `shipmentId`), `kafkago.Hash{}` balancer
+  Message key = aggregate id (the `authorizationId`), `kafkago.Hash{}` balancer
   (`internal/adapters/outbound/kafka/writer.go`).
-- Attributes: `specversion=1.0`; `id` (UUID v4 minted ONCE per event at outbox append and stored in
+- Attributes: `specversion=1.0`; `id` (UUID minted ONCE per event at outbox append and stored in
   `outbox_events.event_id`, so a redelivery carries the same id); `source=/retailnetwork/customer-returns`;
   `type`; `subject` (the aggregate id, never empty); `time` (the domain occurred-at, UTC);
   `datacontenttype=application/json`;
-  `dataschema=urn:retailnetwork:customer-returns:<stream>:<EventName>:v1`. No custom extension
-  attributes without an ADR.
-- `type` = `com.retailnetwork.partner.customer-returns.<entity>.<EventName>` with entity
-  `seller`, `inboundplan` or `inboundshipment` (lowercase, no separators). A breaking payload
-  change is a new `:v2` dataschema, never a mutation of v1; evolution is additive only.
+  `dataschema=urn:retailnetwork:customer-returns:<stream>:<EventName>:v<aggregate version>`.
+  No custom extension attributes without an ADR.
+- `type` = `com.retailnetwork.commerce.customer-returns.<entity>.<EventName>` with the single
+  entity `returnauthorization` (lowercase, no separators). A breaking payload change is a new
+  `:v2` dataschema, never a mutation of v1; evolution is additive only.
 - Payloads follow the wire conventions of contracts-delta: ids are strings, instants RFC 3339 UTC,
-  enums UPPER_SNAKE, quantities always `qtyEaches`, optional fields omitted, arrays always
-  present.
-- Consumers decode with `cloudevents.Decode` (validates), dispatch on the FULL `type` string, ignore
-  unknown types and unknown fields, dedupe on `id`, and skip (WARN, commit past) anything that is
-  not a valid CloudEvent without claiming the inbox; they never fall back to a legacy shape
-  (`TestUnknownTypesAndForeignMessagesAreIgnored`).
+  enums UPPER_SNAKE, quantities are eaches, optional fields omitted, arrays always present.
+  NO payload ever carries a unit price, an address, a name, a phone or free text (PII rule;
+  `internal/architecture/pii_fitness_test.go`).
+- Consumers decode with `cloudevents.Decode` (validates), dispatch on the FULL `type` string,
+  ignore unknown types (silently committed past) and unknown fields, dedupe on `id` in the
+  `processed_events` inbox, and WARN+skip anything that is not a valid CloudEvent without
+  claiming the inbox; they never fall back to a legacy shape.
+- Delivery is at-least-once with an ATOMIC effect (inbox claim + projection commit in ONE unit
+  of work), offsets committed only after success, capped backoff for transient failures, DLQ
+  `<topic>.dlq` with `x-dlq-*` headers for poison payloads.
 - Tests: a golden exact-JSON test per published type
-  (`internal/adapters/outbound/kafka/encoder_test.go`), the catalogue-vs-contract sensor
-  (`TestEventCatalogueMatchesContract`), consumer tests in
+  (`internal/adapters/outbound/kafka/encoder_test.go` + `testdata/`), the catalogue-vs-contract
+  sensor (`TestEventCatalogueMatchesContract`), consumer tests in
   `internal/adapters/inbound/kafka/consumers_test.go`, and the Kafka proof against a real broker
-  (`internal/adapters/outbound/outbox/relay_integration_test.go`, `cmd/api/e2e_integration_test.go`),
-  all via testcontainers.
+  (`internal/adapters/outbound/outbox/relay_integration_test.go`,
+  `cmd/api/e2e_integration_test.go`), all via testcontainers.
 
 ### Published types
 
-`subject` and Kafka key is the aggregate root id.
+`subject` and Kafka key is the aggregate root id (`authorizationId`).
 
-| `type` | stream | `subject` |
-| --- | --- | --- |
-| `com.retailnetwork.partner.customer-returns.seller.SellerOnboarded` | analytics | sellerId |
-| `com.retailnetwork.partner.customer-returns.seller.SellerSuspended` | analytics | sellerId |
-| `com.retailnetwork.partner.customer-returns.seller.SellerReinstated` | analytics | sellerId |
-| `com.retailnetwork.partner.customer-returns.inboundplan.InboundPlanConfirmed` | analytics | planId |
-| `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentLabelled` | events | shipmentId |
-| `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentShipped` | events | shipmentId |
-| `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentReceived` | events | shipmentId |
-| `com.retailnetwork.partner.customer-returns.inboundshipment.InboundDiscrepancyRecorded` | analytics | shipmentId |
-| `com.retailnetwork.partner.customer-returns.seller.SellerComplianceViolationRecorded` | analytics | sellerId |
+| `type` | stream | `subject` | raised by |
+| --- | --- | --- | --- |
+| `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnAuthorized` | events | authorizationId | `AuthorizeReturn` (KEEP included) |
+| `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnLabelIssued` | events | authorizationId | `IssueLabel`, once per package |
+| `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCompleted` | events | authorizationId | the first fitting graded outcome |
+| `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCancelled` | events | authorizationId | `CancelReturn` / lazy expiry |
 
 ### Consumed types
 
 Constants and tolerant payload structs: `internal/adapters/inbound/kafka/consumers.go`. Each
-consumer's group comes from its mandatory variable (`NODE_CONSUMER_GROUP`,
-`CATALOG_CONSUMER_GROUP`, `RECEIPT_CONSUMER_GROUP`).
+consumer's group comes from its mandatory variable (`ORDER_CONSUMER_GROUP`,
+`TOPOLOGY_CONSUMER_GROUP`, `SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP`).
 
 | `type` | topic | handler (use case) |
 | --- | --- | --- |
-| `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | node-topology.events | `ApplyNodeRegistered` |
-| `com.retailnetwork.logistics.node-topology.node.NodeOperationalProfileDeclared` | node-topology.events | `ApplyNodeProfileDeclared` |
-| `com.retailnetwork.logistics.node-topology.node.NodeActivated`, `NodeSuspended`, `NodeRetired` | node-topology.events | `ApplyNodeActivated` / `Suspended` / `Retired` |
-| `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` | offer-availability.events | `ApplyPackagingDeclared` / `ApplyPackLevelRetired` |
-| `com.retailnetwork.partner.vendor-connectivity.inboundreceipt.InboundReceiptSubmitted` | vendor-connectivity.events | `ApplyInboundReceipt` |
+| `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced` | customer-ordering.events | `OnOrderPlaced` |
+| `com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided` (terminal families) | customer-ordering.events | `OnNoticeDecided` |
+| `com.retailnetwork.logistics.node-topology.node.NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | node-topology.events | `OnNodeFact` |
+| `com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned` | node-topology.events | `OnPrefixFact` |
+| `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode`, `FulfillmentLocked` | order-sourcing.events | `OnOriginFact` |
+| `com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted` | vendor-connectivity.events | `OnOutcomeSubmitted` |

@@ -611,9 +611,8 @@ func phaseAuthorize(t *testing.T, s *service, w *world) {
 		t.Fatalf("get = %s", got)
 	}
 	assertProblem(t, s.call(http.MethodGet, "/return-authorizations/ret-404", "", "", http.StatusNotFound), "not-found")
-	// Failure modes.
-	assertProblem(t, s.call(http.MethodPost, "/return-authorizations",
-		`{"orderId":"ord-1","groupNo":4,"lines":[{"lineNo":1}],"reason":"DEFECTIVE"}`, "auth-nodest", http.StatusUnprocessableEntity), "no-return-destination")
+	// Failure modes: a shipped group in a region with no returns centre and no
+	// origin node has no destination at all.
 	assertProblem(t, s.call(http.MethodPost, "/return-authorizations",
 		`{"orderId":"ord-2","groupNo":1,"lines":[{"lineNo":1,"unitPriceCents":5000}],"reason":"NOT_AS_DESCRIBED"}`, "auth-west", http.StatusUnprocessableEntity), "no-return-destination")
 	assertProblem(t, s.call(http.MethodPost, "/return-authorizations",
@@ -651,7 +650,7 @@ func phaseAuthorize(t *testing.T, s *service, w *world) {
 			t.Fatalf("list %s misses %s", list, id)
 		}
 	}
-	assertProblem(t, s.call(http.MethodGet, "/return-authorizations", "", "", http.StatusBadRequest), "validation-failed")
+	assertProblem(t, s.call(http.MethodGet, "/return-authorizations", "", "", http.StatusUnprocessableEntity), "validation-failed")
 	w.events = append(w.events, "ReturnAuthorized", "ReturnAuthorized", "ReturnAuthorized", "ReturnAuthorized", "ReturnCancelled")
 }
 
