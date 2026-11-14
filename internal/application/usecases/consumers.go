@@ -21,6 +21,15 @@ func (s *Service) OnOrderPlaced(ctx context.Context, eventID string, e requests.
 				Lines:                   append([]network.GroupLine(nil), g.Lines...),
 				UpdatedAt:               s.d.Clock.Now(),
 			}
+			// Order tolerance: a notice fact may already have set a terminal
+			// status (the two events have no ordering guarantee). The placed
+			// lines, prefix and witness fill the row, but a fact already seen
+			// is never demoted back to PROMISED.
+			if held, err := s.d.Groups.Group(ctx, e.OrderID, g.GroupNo); err == nil && held.Status != network.GroupPromised {
+				row.Status = held.Status
+			} else if err != nil && !errors.Is(err, ports.ErrNotFound) {
+				return err
+			}
 			if err := s.d.Groups.SaveGroup(ctx, row); err != nil {
 				return err
 			}

@@ -48,15 +48,23 @@ func TestAuthorizationRepoRoundTrip(t *testing.T) {
 		t.Fatalf("LinkLabel: %v", err)
 	}
 	loaded.Events()
-	if err := loaded.MarkInTransit(); err != nil {
-		t.Fatalf("MarkInTransit: %v", err)
-	}
+	// One command per Save (the optimistic version moves by one).
 	if err := repo.Save(context.Background(), loaded); err != nil {
 		t.Fatalf("Save 2: %v", err)
 	}
-	final, err := repo.Get(context.Background(), "ret-round")
+	transiting, err := repo.Get(context.Background(), "ret-round")
 	if err != nil {
 		t.Fatalf("Get 2: %v", err)
+	}
+	if err := transiting.MarkInTransit(); err != nil {
+		t.Fatalf("MarkInTransit: %v", err)
+	}
+	if err := repo.Save(context.Background(), transiting); err != nil {
+		t.Fatalf("Save 3: %v", err)
+	}
+	final, err := repo.Get(context.Background(), "ret-round")
+	if err != nil {
+		t.Fatalf("Get 3: %v", err)
 	}
 	snap := final.Snapshot()
 	if snap.State != returnauthorization.StateInTransit || len(snap.TrackingNumbers) != 1 ||
@@ -166,8 +174,9 @@ func TestViewRepositoriesRoundTrip(t *testing.T) {
 
 func TestMigrationCeiling(t *testing.T) {
 	pgtest.NewPool(t) // boots the container and runs every migration
-	// The step count is the fleet's migration ceiling: 0001 schema + 0002 stem.
-	const wantSteps = 2
+	// The step count is the fleet's migration ceiling: 0001 schema, 0002 stem,
+	// 0003 the global Idempotency-Key (REST guideline 2.3).
+	const wantSteps = 3
 	matches, err := filepath.Glob("migrations/*.up.sql")
 	if err != nil || len(matches) != wantSteps {
 		t.Fatalf("migrations = %d steps (%v), want %d (bump the ceiling when you add one)", len(matches), err, wantSteps)

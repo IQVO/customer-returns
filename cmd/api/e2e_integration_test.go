@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -190,6 +191,15 @@ func freeAddr(t *testing.T) string {
 	return l.Addr().String()
 }
 
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // service is one running instance of the real entry point.
 type service struct {
 	t      *testing.T
@@ -198,12 +208,14 @@ type service struct {
 	done   chan error
 }
 
-// env is the environment a deployment sets.
+// env is the environment a deployment sets. logLevel defaults to warn; set it
+// to info while debugging a phase.
 type env struct {
 	dbURL     string
 	brokers   []string
 	addr      string
 	labelsURL string
+	logLevel  string
 }
 
 func (e env) apply(t *testing.T) {
@@ -220,7 +232,7 @@ func (e env) apply(t *testing.T) {
 	t.Setenv("HTTP_ADDR", e.addr)
 	t.Setenv("SHUTDOWN_DRAIN_DELAY", "0")
 	t.Setenv("OUTBOX_RELAY_INTERVAL", "200ms")
-	t.Setenv("LOG_LEVEL", "warn")
+	t.Setenv("LOG_LEVEL", firstNonEmpty(e.logLevel, "warn"))
 }
 
 // start boots run in-process and waits until the listener answers /healthz.
@@ -305,8 +317,12 @@ func waitFor(t *testing.T, timeout time.Duration, what string, cond func() bool)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("timed out after %s waiting for %s", timeout, what)
+	t.Fatalf("timed out after %s waiting for %s; last poll: %s", timeout, what, wdiagnostics)
 }
+
+// wdiagnostics is set by a phase before a waitFor so its timeout names what
+// the last poll actually saw.
+var wdiagnostics string
 
 // pgView reads the service's own database.
 type pgView struct {
@@ -322,6 +338,26 @@ func newPGView(t *testing.T, url string) pgView {
 	}
 	t.Cleanup(pool.Close)
 	return pgView{t: t, pool: pool}
+}
+
+func (v pgView) ids(query string) []string {
+	v.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows, err := v.pool.Query(ctx, query)
+	if err != nil {
+		v.t.Fatalf("%s: %v", query, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			v.t.Fatalf("scan: %v", err)
+		}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (v pgView) count(query string, args ...any) int {
@@ -492,6 +528,8 @@ type world struct {
 	mainID, keepID, pricesID, cancelID string
 
 	events []string // the event names in published order
+
+	diagnostics string // what the last waitFor poll saw
 }
 
 // phaseSetup feeds the two read models through the input topics: an ACTIVE
@@ -516,14 +554,16 @@ func phaseSetup(t *testing.T, w *world) {
 		group(1), group(2), group(3), group(4), group(5))
 	produce(t, w.brokers, topicOrdering,
 		orderingEvent(t, "evt-co1", "CustomerOrderPlaced", "customerorder", "ord-1", placed),
-		orderingEvent(t, "evt-co2", "order", "ShopperNoticeDecided", "ord-1", `{"orderId":"ord-1","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co3", "order", "ShopperNoticeDecided", "ord-1", `{"orderId":"ord-1","groupNo":2,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co4", "order", "ShopperNoticeDecided", "ord-1", `{"orderId":"ord-1","groupNo":3,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co5", "order", "ShopperNoticeDecided", "ord-1", `{"orderId":"ord-1","groupNo":5,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
+		orderingEvent(t, "evt-co2", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
+		orderingEvent(t, "evt-co3", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":2,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
+		orderingEvent(t, "evt-co4", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":3,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
+		orderingEvent(t, "evt-co5", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":5,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
 		orderingEvent(t, "evt-co6", "CustomerOrderPlaced", "customerorder", "ord-2", `{"orderId":"ord-2","placedAt":"2026-11-01T11:00:00Z","groups":[{"groupNo":1,"destinationPostalPrefix":"31","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-300","Quantity":1}]}]}`),
-		orderingEvent(t, "evt-co7", "order", "ShopperNoticeDecided", "ord-2", `{"orderId":"ord-2","groupNo":1,"family":"GROUP_DELIVERED","fact":{"status":"DELIVERED"}}`),
-		orderingEvent(t, "evt-co8", "order", "ShopperNoticeDecided", "ord-idem", `{"orderId":"ord-idem","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`))
+		orderingEvent(t, "evt-co7", "ShopperNoticeDecided", "order", "ord-2", `{"orderId":"ord-2","groupNo":1,"family":"GROUP_DELIVERED","fact":{"status":"DELIVERED"}}`))
+	// ord-idem's placed event and its notice: the notice FIRST on purpose --
+	// the view must stay SHIPPED when the placed event lands after the fact.
 	produce(t, w.brokers, topicOrdering,
+		orderingEvent(t, "evt-co8", "ShopperNoticeDecided", "order", "ord-idem", `{"orderId":"ord-idem","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
 		orderingEvent(t, "evt-co9", "CustomerOrderPlaced", "customerorder", "ord-idem",
 			`{"orderId":"ord-idem","placedAt":"2026-11-01T12:00:00Z","groups":[{"groupNo":1,"destinationPostalPrefix":"22","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-100","Quantity":1}]}]}`))
 	produce(t, w.brokers, topicSourcing,
@@ -531,12 +571,16 @@ func phaseSetup(t *testing.T, w *world) {
 			`{"orderId":"ord-1","groupNo":1,"nodeId":"node-fc-1","lines":[{"catalogItemId":"sku-100","ownerRef":"sel-42"},{"catalogItemId":"sku-200","ownerRef":"sel-42"}]}`),
 		sourcingEvent(t, "evt-os2", "FulfillmentLocked", "ord-1", `{"orderId":"ord-1","groupNo":1,"nodeId":"node-fc-1"}`))
 	waitFor(t, 60*time.Second, "the order group and returns network views to be fed", func() bool {
-		return w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-1' AND group_no=1 AND status='SHIPPED'`) == 1 &&
-			w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-2' AND group_no=1 AND status='DELIVERED'`) == 1 &&
-			w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-idem' AND group_no=1 AND status='SHIPPED'`) == 1 &&
-			w.db.count(`SELECT count(*) FROM returns_network_nodes WHERE node_id='node-rc-1' AND lifecycle='ACTIVE'`) == 1 &&
-			w.db.count(`SELECT count(*) FROM service_area_prefixes WHERE postal_prefix='22' AND region_id='region-east'`) == 1 &&
-			w.db.count(`SELECT count(*) FROM group_origins WHERE order_id='ord-1' AND group_no=1 AND node_id='node-fc-1'`) == 1
+		g1 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-1' AND group_no=1 AND status='SHIPPED'`) == 1
+		g2 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-2' AND group_no=1 AND status='DELIVERED'`) == 1
+		g3 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-idem' AND group_no=1 AND status='SHIPPED'`) == 1
+		n1 := w.db.count(`SELECT count(*) FROM returns_network_nodes WHERE node_id='node-rc-1' AND lifecycle='ACTIVE'`) == 1
+		p1 := w.db.count(`SELECT count(*) FROM service_area_prefixes WHERE postal_prefix='22' AND region_id='region-east'`) == 1
+		o1 := w.db.count(`SELECT count(*) FROM group_origins WHERE order_id='ord-1' AND group_no=1 AND node_id='node-fc-1'`) == 1
+		wdiagnostics = fmt.Sprintf("g1=%v g2=%v g3=%v node=%v prefix=%v origin=%v processed=%d ids=%s",
+			g1, g2, g3, n1, p1, o1, w.db.count(`SELECT count(*) FROM processed_events`),
+			strings.Join(w.db.ids(`SELECT event_id FROM processed_events ORDER BY event_id`), ","))
+		return g1 && g2 && g3 && n1 && p1 && o1
 	})
 }
 
@@ -758,7 +802,8 @@ func TestRunOnRealPostgresAndKafka(t *testing.T) {
 	}
 	w := &world{kc: kc, db: newPGView(t, dbURL), brokers: brokers}
 	stub := stubShippingLabels(t)
-	s := env{dbURL: dbURL, brokers: brokers, addr: freeAddr(t), labelsURL: stub.URL}.start(t)
+	e := env{dbURL: dbURL, brokers: brokers, addr: freeAddr(t), labelsURL: stub.URL, logLevel: os.Getenv("E2E_LOG_LEVEL")}
+	s := e.start(t)
 	phaseSetup(t, w)
 	phaseAuthorize(t, s, w)
 	phaseLabel(t, s, w)
