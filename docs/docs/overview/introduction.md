@@ -37,7 +37,7 @@ only through the Vendor API of `vendor-connectivity`.
   data, and the reconciliation against the vendor's receipt.
 - **SSCC uniqueness network-wide** (`sscc_registry`) and **SSCC issuance** from the network's own GS1 company prefix when
   the seller supplies none.
-- **The seller compliance scorecard** ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)): an informational rolling
+- **The seller compliance scorecard** ([ADR 0005](/docs/adr/0005-the-reverse-label-route)): an informational rolling
   7-day or 30-day read over the discrepancies and violations this service recorded. It suspends and blocks nothing.
 - **Two local read models**, `NodeInboundView` and `CatalogPackagingView`, folded from neighbours' events
   ([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models)).

@@ -1,0 +1,70 @@
+---
+id: issue-return-label
+title: "Issue the shopper's reverse label (IssueLabel)"
+description: "Asks the shipping context's `POST /return-labels` route for the reverse label of `packageNo` (1..5), links the tracking number and publishes `ReturnLabelIssued`. The route is the ONE in-org call this context makes; while it is not configured (or answers anything but 200) the answer is `422 label-unavailable` -- tolerant, never a 500. Only an open physical authorization is labelable."
+sidebar_label: "Issue the shopper's reverse label (IssueLabel)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/rest/customer-returns-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Issue the shopper's reverse label (IssueLabel)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/return-authorizations/{authorizationId}/labels"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Asks the shipping context's `POST /return-labels` route for the reverse label of `packageNo` (1..5), links the tracking number and publishes `ReturnLabelIssued`. The route is the ONE in-org call this context makes; while it is not configured (or answers anything but 200) the answer is `422 label-unavailable` -- tolerant, never a 500. Only an open physical authorization is labelable.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./issue-return-label.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./issue-return-label.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./issue-return-label.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

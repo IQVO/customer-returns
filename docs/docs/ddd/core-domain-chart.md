@@ -61,5 +61,5 @@ hierarchy, not the lifecycle.
 
 **Movement to watch.** If seller compliance became a scored, enforced programme, the Enforcer role would grow and the
 context would move up. The scorecard the service has today is informational and acts on nothing
-([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)); see
+([ADR 0005](/docs/adr/0005-the-reverse-label-route)); see
 [Subdomain classification](/docs/ddd/subdomain-classification).

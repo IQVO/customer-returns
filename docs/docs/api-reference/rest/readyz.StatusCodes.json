@@ -1,0 +1,1 @@
+{"responses":{"200":{"description":"Both dependencies answer."},"503":{"description":"At least one dependency is down; the body names it."}}}

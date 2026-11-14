@@ -39,7 +39,7 @@ behaviour from `internal/application/usecases`, the envelope from `internal/adap
 
 :::info Not in this pack
 The MCP server ([ADR 0006](/docs/adr/0006-read-only-mcp-server)), the A2A adapter
-([ADR 0009](/docs/adr/0009-a2a-inbound-adapter)) and the web console remote ([ADR 0007](/docs/adr/0007-console-web-remote),
+([ADR 0009](/docs/adr/0009-a2a-inbound-adapter)) and the web console remote ([ADR 0007](/docs/adr/0006-read-only-mcp-server),
 `web/`) are built, but they are read surfaces over the model and add no aggregate, entity or event of their own, so the
 pack has no pages for them. They are described under [MCP tools](/docs/mcp/tools) and the [API overview](/docs/api-reference).
 :::

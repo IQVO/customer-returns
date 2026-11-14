@@ -86,7 +86,7 @@ Reads the label data of a shipment, one entry per carton.
 
 ## `get_seller_scorecard`
 
-Answers a seller's informational compliance scorecard ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)).
+Answers a seller's informational compliance scorecard ([ADR 0005](/docs/adr/0005-the-reverse-label-route)).
 
 - **Input:** `sellerId` (required, for example `seller-77`); `window` (optional, `7d` or `30d`, default `30d`).
 - **Output:** `sellerId`, `window`, `windowStart`, `windowEnd`, `shipmentsReceived`, `cartonsReported`,

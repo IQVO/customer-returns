@@ -53,7 +53,7 @@ shipment counter are ports too, so the use cases never touch infrastructure.
 | `cmd/a2a` | Read-only A2A (Agent2Agent) agent: JSON-RPC 2.0 at `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`; no relay, consumer or Kafka ([ADR 0009](/docs/adr/0009-a2a-inbound-adapter)). | `A2A_ADDR`, default `:8093` | `GET /healthz` |
 
 `web/` is not a Go binary: it is the `customer_returns_mfe` Module Federation remote (Vite and React) shipped in its own
-nginx image ([ADR 0007](/docs/adr/0007-console-web-remote)). There is no projector, reports or analytical-database
+nginx image ([ADR 0007](/docs/adr/0006-read-only-mcp-server)). There is no projector, reports or analytical-database
 binary. How `cmd/api` boots and stops is in [Runtime](/docs/overview/runtime); every variable is in
 [Configuration](/docs/operations/configuration).
 

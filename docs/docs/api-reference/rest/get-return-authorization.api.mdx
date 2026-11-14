@@ -1,0 +1,70 @@
+---
+id: get-return-authorization
+title: "Read one return authorization (GetReturnAuthorization)"
+description: "The authorization with its lines, disposition, labels and state. An expired-but-untouched authorization is lazily cancelled on this read and returned `CANCELLED`. The MCP tool `get_return_authorization` and the A2A skill of the same name answer the same query."
+sidebar_label: "Read one return authorization (GetReturnAuthorization)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/customer-returns-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Read one return authorization (GetReturnAuthorization)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/return-authorizations/{authorizationId}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+The authorization with its lines, disposition, labels and state. An expired-but-untouched authorization is lazily cancelled on this read and returned `CANCELLED`. The MCP tool `get_return_authorization` and the A2A skill of the same name answer the same query.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./get-return-authorization.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./get-return-authorization.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./get-return-authorization.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

@@ -116,4 +116,4 @@ Source: `internal/application/usecases/consumers.go` (`ApplyInboundReceipt`), `i
 | --- | --- |
 | Who creates owner-scoped listings from received stock | Network gap register G51 (IQVO/warehouse-docs): nothing in this service creates a listing |
 | A shipped shipment that is never received | No timeout exists: a `SHIPPED` shipment stays so until a receipt arrives (see [Troubleshooting](/docs/operations/troubleshooting)) |
-| Violations are recorded and nothing acts on them | The scorecard is informational ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)); no consumer of the analytics topic exists in the organisation |
+| Violations are recorded and nothing acts on them | The scorecard is informational ([ADR 0005](/docs/adr/0005-the-reverse-label-route)); no consumer of the analytics topic exists in the organisation |

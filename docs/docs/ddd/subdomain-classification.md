@@ -26,7 +26,7 @@ model complexity 0.48 ([Core Domain Chart](/docs/ddd/core-domain-chart)).
   protocol); it owns facts nobody else should (SSCC uniqueness network-wide, plan-to-carton reconciliation); and it keeps
   the seam narrow: sellers reach this context, vendors reach vendor-connectivity, and the two meet only through events.
 - **What would move it.** If seller compliance became a scored, enforced programme, the context would grow an Enforcer
-  role and move up. Today the scorecard is informational ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)).
+  role and move up. Today the scorecard is informational ([ADR 0005](/docs/adr/0005-the-reverse-label-route)).
 
 ## Neighbours
 

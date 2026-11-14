@@ -121,4 +121,4 @@ shipments of one plan is the relief valve (the plan accepts several shipments).
 | --- | --- | --- |
 | `NodeInboundView` | `node_inbound_views` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` |
 | `CatalogPackagingView` | `catalog_pack_levels` | `CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` |
-| Seller scorecard | `seller_scorecard_receipts`, `seller_scorecard_occurrences` | No event: this service's own facts (one row per closed shipment, one per discrepancy or violation), written in the transaction of each applied receipt; read by `GET /sellers/{sellerId}/scorecard` ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)) |
+| Seller scorecard | `seller_scorecard_receipts`, `seller_scorecard_occurrences` | No event: this service's own facts (one row per closed shipment, one per discrepancy or violation), written in the transaction of each applied receipt; read by `GET /sellers/{sellerId}/scorecard` ([ADR 0005](/docs/adr/0005-the-reverse-label-route)) |

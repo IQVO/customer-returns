@@ -15,7 +15,7 @@ shipment and every discrepancy and compliance violation is recorded, never corre
 Sources: [ADR 0002](/docs/adr/0002-aggregates-and-invariants) (aggregates),
 [0003](/docs/adr/0003-consumed-contracts-and-local-read-models) (consumed contracts),
 [0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue) (event catalogue),
-[0005](/docs/adr/0005-seller-compliance-scorecard) (scorecard) and
+[0005](/docs/adr/0005-the-reverse-label-route) (scorecard) and
 [Runtime](/docs/overview/runtime) (probes, shutdown, outbox).
 
 ## Runtime shape

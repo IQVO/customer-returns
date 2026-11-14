@@ -110,7 +110,7 @@ discrepancies).
 Built: the Tier-2 counter `customer_returns.shipment.shipped` (attribute `outcome` `shipped` or `rejected`, `reason` the
 problem slug; [ADR 0008](/docs/adr/0008-fleet-observability-standard)) and the per-seller scorecard
 (`receiptAccuracyRate`, `discrepancyRatePerShipment`, `discrepanciesByKind`, `complianceViolations`, `complianceTier`;
-[ADR 0005](/docs/adr/0005-seller-compliance-scorecard)). Not built: share of cartons whose SSCC was network-issued; time
+[ADR 0005](/docs/adr/0005-the-reverse-label-route)). Not built: share of cartons whose SSCC was network-issued; time
 from `SHIPPED` to the first receipt; share of case-packed cartons refused at `AddCarton`.
 
 ## 11. Open questions

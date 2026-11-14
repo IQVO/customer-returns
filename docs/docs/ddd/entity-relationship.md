@@ -90,7 +90,7 @@ erDiagram
     }
 ```
 
-Seller scorecard facts (migration 0002, [ADR 0005](/docs/adr/0005-seller-compliance-scorecard)), written in the same unit
+Seller scorecard facts (migration 0002, [ADR 0005](/docs/adr/0005-the-reverse-label-route)), written in the same unit
 of work as the receipt:
 
 ```mermaid

@@ -104,6 +104,6 @@ sequence.
 - **No auth variables.** REST, MCP and A2A are unauthenticated fleet-wide.
 - **No Kafka variable on `cmd/mcp` and `cmd/a2a`.** They never dial Kafka and can never write.
 - **No scorecard threshold variables.** Tier thresholds are constants in `internal/domain/scorecard/scorecard.go`
-  ([ADR 0005](/docs/adr/0005-seller-compliance-scorecard)).
+  ([ADR 0005](/docs/adr/0005-the-reverse-label-route)).
 - **Chart values.** `charts/customer-returns` maps these variables onto the pods (`database.*`, `kafka.brokers`,
   `config.*`, `mcp.*`, `a2a.*`); see [Runtime](/docs/overview/runtime#deployment-helm-chart).

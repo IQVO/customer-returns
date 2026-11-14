@@ -95,7 +95,7 @@ idempotency key; a 5xx is never cached, so the same key can retry; a 4xx is cach
 | --- | --- | --- | --- |
 | A rate is missing from the scorecard | By design: no shipment closed in the window (`discrepancyRatePerShipment`) or no carton reported (`receiptAccuracyRate`); never `0` or `NaN`. | `GET /sellers/{id}/scorecard?window=30d`. | None. |
 | Counts are empty after an upgrade | Migration `0002` backfills from the published events in `outbox_events`; facts deleted before the upgrade are lost. | `SELECT count(*) FROM seller_scorecard_receipts`. | None; nothing else rebuilds them. |
-| Scorecard tier looks too harsh or too lenient | Tier thresholds are constants in `internal/domain/scorecard/scorecard.go`. | [ADR 0005](/docs/adr/0005-seller-compliance-scorecard). | A change needs a new ADR, not a config change. |
+| Scorecard tier looks too harsh or too lenient | Tier thresholds are constants in `internal/domain/scorecard/scorecard.go`. | [ADR 0005](/docs/adr/0005-the-reverse-label-route). | A change needs a new ADR, not a config change. |
 
 ## MCP and A2A
 
