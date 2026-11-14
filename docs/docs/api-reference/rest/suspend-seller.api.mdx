@@ -1,0 +1,70 @@
+---
+id: suspend-seller
+title: "Suspend a seller (SuspendSeller)"
+description: "Moves the account `ACTIVE` to `SUSPENDED` and publishes `SellerSuspended`. A seller already `SUSPENDED` gets the account back unchanged with `200` and no event. While suspended, the seller creates no plan, shipment or carton and ships nothing."
+sidebar_label: "Suspend a seller (SuspendSeller)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/rest/seller-inbound-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Suspend a seller (SuspendSeller)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/sellers/{sellerId}/suspensions"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Moves the account `ACTIVE` to `SUSPENDED` and publishes `SellerSuspended`. A seller already `SUSPENDED` gets the account back unchanged with `200` and no event. While suspended, the seller creates no plan, shipment or carton and ships nothing.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./suspend-seller.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./suspend-seller.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./suspend-seller.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

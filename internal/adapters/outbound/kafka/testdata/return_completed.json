@@ -1,0 +1,14 @@
+{
+  "authorizationId": "ret-0001",
+  "outcome": "RECEIVED",
+  "nodeId": "node-rc-1",
+  "lines": [
+    {
+      "catalogItemId": "sku-100",
+      "ownerRef": "sel-42",
+      "qtyRestockable": 1,
+      "qtyUnsellable": 1
+    }
+  ],
+  "receivedAt": "2026-11-14T10:00:00Z"
+}

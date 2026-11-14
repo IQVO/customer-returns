@@ -1,0 +1,27 @@
+{
+  "authorizationId": "ret-0001",
+  "orderId": "ord-51a0c9",
+  "groupNo": 2,
+  "reason": "DEFECTIVE",
+  "disposition": "NEAREST_RETURNS_CENTER",
+  "method": "PICKUP",
+  "lines": [
+    {
+      "lineNo": 1,
+      "catalogItemId": "sku-100",
+      "quantity": 2,
+      "ownerRef": "sel-42"
+    },
+    {
+      "lineNo": 2,
+      "catalogItemId": "sku-200",
+      "quantity": 1
+    }
+  ],
+  "destinationNodeId": "node-rc-1",
+  "originNodeId": "node-fc-1",
+  "pickupWindowStart": "2026-11-15T10:00:00Z",
+  "pickupWindowEnd": "2026-11-16T10:00:00Z",
+  "expiresAt": "2026-12-14T10:00:00Z",
+  "authorizedAt": "2026-11-14T10:00:00Z"
+}
