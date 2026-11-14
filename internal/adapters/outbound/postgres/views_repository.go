@@ -114,9 +114,15 @@ WHERE EXCLUDED.assignment_version > service_area_prefixes.assignment_version`,
 
 // SaveOrigin upserts the group-origin row.
 func (r *NetworkViewRepo) SaveOrigin(ctx context.Context, o network.GroupOrigin) error {
-	owners, err := json.Marshal(o.OwnersByItem)
-	if err != nil {
-		return fmt.Errorf("encode owners: %w", err)
+	// A nil OwnersByItem (a lock fact that arrived before any release named
+	// the owners) must persist as {}, never null: the column's CHECK demands
+	// an object.
+	owners := []byte("{}")
+	if o.OwnersByItem != nil {
+		var err error
+		if owners, err = json.Marshal(o.OwnersByItem); err != nil {
+			return fmt.Errorf("encode owners: %w", err)
+		}
 	}
 	tag, err := queryFor(ctx, r.pool).Exec(ctx, `
 INSERT INTO group_origins (order_id, group_no, node_id, owners_by_item, updated_at)
