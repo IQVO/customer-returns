@@ -8,25 +8,27 @@ description: "Why customer-returns is a Supporting subdomain of the retail netwo
 
 # Subdomain classification
 
-**Customer Returns is a Supporting subdomain**: bounded context `customer-returns`, CloudEvents tier `partner`, business
-model *supply enabler*, evolution *custom-built*. Its place on the Core Domain Chart is business differentiation 0.34,
-model complexity 0.48 ([Core Domain Chart](/docs/ddd/core-domain-chart)).
+**Customer Returns is a Supporting subdomain**: bounded context `customer-returns`, CloudEvents tier `commerce`, business
+model *service enabler*, evolution *custom-built*. Its place on the Core Domain Chart is business differentiation 0.34,
+model complexity 0.42 ([Core Domain Chart](/docs/ddd/core-domain-chart)).
 
 ## Reasoning
 
-- **Low differentiation.** The rules are the common practice of case-packed receiving: identify every carton, check it
-  against the plan, count what arrives. Nothing in this context decides a promise or a route, which is what sets the
-  network apart. It enables supply; it does not differentiate.
-- **Moderate complexity.** Three aggregates (one with a child entity and a six-state machine), eight consumed event types
-  from three producers, and invariants that depend on two local read models. The hard part is validating a carton set
-  against a plan and a packaging hierarchy, not the lifecycle.
-- **Not Generic.** Buying a seller-onboarding product would still leave the carton, SSCC and receipt-reconciliation
-  rules to write, and they are specific to this network's model (`ownerRef`, the node's inbound limits).
-- **Why a context of its own.** It is the seller's contract, not the vendor's (vendor-connectivity is the vendor
-  protocol); it owns facts nobody else should (SSCC uniqueness network-wide, plan-to-carton reconciliation); and it keeps
-  the seam narrow: sellers reach this context, vendors reach vendor-connectivity, and the two meet only through events.
-- **What would move it.** If seller compliance became a scored, enforced programme, the context would grow an Enforcer
-  role and move up. Today the scorecard is informational ([ADR 0005](/docs/adr/0005-the-reverse-label-route)).
+- **Low differentiation.** The rules are the common practice of reverse logistics: authorize the return of a shipped
+  order group, issue a reverse label, grade the outcome. Nothing in this context decides a promise or a route, which is
+  what sets the network apart. It enables the post-purchase service; it does not differentiate.
+- **Moderate complexity.** One aggregate with a six-state machine, a pure disposition function over three local read
+  models (`OrderGroupView`, `ReturnsNetworkView` in three halves, `GroupOrigin`), ten consumed event types from four
+  producers, and one synchronous seam (the reverse-label route, [ADR 0005](/docs/adr/0005-the-reverse-label-route)).
+- **Not Generic.** Buying a returns product would still leave the disposition policy (`ReturnlessThresholdCents`, the
+  destination selection over this network's returns centres and origin nodes) and the no-money/no-PII seams to write,
+  and they are specific to this network's model.
+- **Why a context of its own.** It is the shopper's contract, not the vendor's (vendor-connectivity is the vendor
+  protocol); it owns the disposition decision nobody else should make; and it keeps the PII boundary — no address, name,
+  phone or free text ever enters it ([ADR 0001](/docs/adr/0001-customer-returns-bounded-context)).
+- **What would move it.** If the returns policy became a scored, competitive programme (dynamic returnless thresholds,
+  instant refunds, graded recovery), the context would grow a real policy role and move up. Today the threshold is one
+  constant in `decide.go`.
 
 ## Neighbours
 
@@ -36,20 +38,21 @@ Copied from the retail network's classification
 
 | Bounded context | Classification | Tier | Relation to customer-returns |
 | --- | --- | --- | --- |
-| `node-topology` | Supporting | `logistics` | Upstream: node status, type and inbound limits (Conformist). |
-| `offer-availability` | Supporting | `commerce` | Upstream: packaging hierarchy and GTINs (Conformist). |
-| `vendor-connectivity` | Supporting | `partner` | Upstream for the receipt, downstream for the manifest and closing status (Customer/Supplier both ways, events only). |
-| `node-performance` | Supporting | `partner` | Downstream: consumes `InboundShipmentShipped`. |
-| `customer-returns` | **Supporting** | `partner` | This context. |
-| `delivery-promise`, `order-sourcing` | Core | `commerce` | No edge (Separate Ways). |
-| `linehaul-transportation`, `last-mile-delivery` | Supporting | `logistics` | No edge. |
-| `customer-ordering` | Generic | `commerce` | No edge. |
-| `shipping-and-tracking` | Generic | `logistics` | No edge. |
+| `customer-ordering` | Generic | `commerce` | Upstream: group status and placed lines (Conformist). |
+| `node-topology` | Supporting | `logistics` | Upstream: returns centres and service-area prefixes (Conformist). |
+| `order-sourcing` | Core | `commerce` | Upstream: which node fulfilled the group and whose stock each item took (Conformist). |
+| `vendor-connectivity` | Supporting | `partner` | Upstream for graded outcomes, downstream for the return advices (Customer/Supplier both ways, events only). |
+| `shipping-and-tracking` | Generic | `logistics` | Upstream supplier of the reverse label, over the one synchronous route (Customer/Supplier). |
+| `offer-availability` | Supporting | `commerce` | Downstream: restocks listings from `ReturnCompleted`. |
+| `customer-returns` | **Supporting** | `commerce` | This context. |
+| `delivery-promise` | Core | `commerce` | No edge (Separate Ways). |
+| `linehaul-transportation`, `last-mile-delivery` | Supporting | `logistics` | No edge today; the last-mile pickup wave will raise `PICKUP_FAILED`. |
 
-The network has two Core, seven Supporting and two Generic contexts. In the problem space the subdomain is *Seller
-Inbound*: letting sellers plan, label and ship stock to vendor nodes and reconciling what arrives.
+In the problem space the subdomain is *Customer Returns*: authorizing shoppers to return shipped order groups, deciding
+the disposition of the goods, issuing the reverse label and closing the loop on the returns centre's graded outcome.
 
-The warehouse-systems fleet is not a neighbour: it reaches the network only through the Vendor API of
-vendor-connectivity ([Integration](/docs/ecosystem/integration#edges-that-do-not-exist)). The fleet's own classification
-of its contexts is on the [warehouse-docs strategic design](https://iqvo.github.io/warehouse-docs/strategic-design/subdomain-classification)
+The warehouse-systems fleet is not a neighbour: its returns-processing context reaches this one only through the Vendor
+API of vendor-connectivity (return advices and outcome submission), never directly
+([Integration](/docs/ecosystem/integration#edges-that-do-not-exist)). The fleet's own classification of its contexts is
+on the [warehouse-docs strategic design](https://iqvo.github.io/warehouse-docs/strategic-design/subdomain-classification)
 site.

@@ -9,138 +9,186 @@ description: "UML class diagrams of the Customer Returns domain types and its he
 # Class Diagram
 
 UML class diagrams of the domain model. Fields are unexported (`-`), methods exported (`+`); only methods that exist in
-the code are listed. The packages are `internal/domain/seller` (`Account`), `internal/domain/inboundplan` (`Plan`),
-`internal/domain/inboundshipment` (`Shipment`, `Carton`, `Receipt`), `internal/domain/network` (the read-model value
-types), `internal/domain/scorecard` (the informational scorecard) and `internal/domain/shared/gs1` (`GTIN`, `SSCC`).
-The terms are mapped on [Ubiquitous language](/docs/ddd/ubiquitous-language).
+the code are listed. The packages are `internal/domain/returnauthorization` (the aggregate, its value objects and
+`Decide`), `internal/domain/network` (the read-model value types) and `internal/domain/shared` (the event envelope and
+the typed errors). The terms are mapped on [Ubiquitous language](/docs/ddd/ubiquitous-language).
 
-## 1. InboundShipment aggregate
+## 1. ReturnAuthorization aggregate
 
 ```mermaid
 classDiagram
     direction TB
-    class Shipment {
+    class ReturnAuthorization {
         <<AggregateRoot>>
         -id ID
-        -planID string
-        -sellerID string
-        -nodeID string
+        -orderID string
+        -groupNo int
+        -lines Line[]
+        -reason Reason
+        -disposition Disposition
+        -method Method
+        -destinationNodeID string
+        -originNodeID string
+        -pickupStart Time
+        -pickupEnd Time
+        -trackingNumbers string[]
         -state State
-        -cartons Carton[]
+        -authorizedAt Time
+        -expiresAt Time
+        -closedAt Time
         -version int64
-        +AddCarton(in NewCarton, r CartonRules) Carton, error
-        +Label(rules PlanRules, now Time) Event[], error
-        +Ship(now Time) Event[], error
-        +RecordReceipt(r Receipt, now Time) Event[], error
+        +LinkLabel(trackingNumber string, now Time) error
+        +MarkInTransit() error
+        +ApplyOutcome(lines OutcomeLine[], nodeID string, now Time) error
+        +Cancel(reason CancelReason, now Time) error
+        +MarkPickupFailed(now Time) error
+        +PricesAbsent() bool
         +Snapshot() Snapshot
+        +Events() Event[]
     }
-    class Carton {
-        <<Entity>>
-        +SSCC string
-        +ParentSSCC string
-        +Kind Kind
-        +Contents Content[]
-        +GrossWeightG int
-        +Dims Dims
-        +Sealed bool
-        +Receipt ReceiptStatus
+    class Line {
+        <<ValueObject>>
+        +LineNo int
+        +CatalogItemID string
+        +Quantity int
+        +UnitPriceCents *int64
+        +OwnerRef string
     }
-    class Content {
+    class OutcomeLine {
         <<ValueObject>>
         +CatalogItemID string
-        +GTIN string
-        +QtyEaches int
-        +Lot string
-        +Expiry string
+        +OwnerRef string
+        +QtyRestockable int
+        +QtyUnsellable int
     }
-    Shipment "1" *-- "0..*" Carton
-    Carton "1" *-- "1..*" Content
+    class Reason {
+        <<Enumeration>>
+        DEFECTIVE
+        NOT_AS_DESCRIBED
+        WRONG_ITEM
+        NOT_NEEDED
+        OTHER
+    }
+    class Disposition {
+        <<Enumeration>>
+        KEEP
+        NEAREST_RETURNS_CENTER
+        ORIGIN_NODE
+    }
+    class Method {
+        <<Enumeration>>
+        DROP_OFF
+        PICKUP
+    }
+    ReturnAuthorization "1" *-- "1..50" Line
+    ReturnAuthorization ..> OutcomeLine : graded by ApplyOutcome
+    ReturnAuthorization ..> Reason
+    ReturnAuthorization ..> Disposition
+    ReturnAuthorization ..> Method
 ```
 
-Source: `internal/domain/inboundshipment/{shipment,carton,receipt}.go`. `Restore(Snapshot)` rebuilds the aggregate and
-re-validates it. A new shipment starts empty and `DRAFT`; cartons are added one at a time, so the diagram says `0..*`.
+Source: `internal/domain/returnauthorization/{authorization,commands,events,invariants}.go`. `Restore(Snapshot)`
+rebuilds the aggregate and re-validates it (`checkSnapshot`). `LinkLabel`, `ApplyOutcome` and `Cancel` raise
+`ReturnLabelIssued`, `ReturnCompleted` and `ReturnCancelled`; `MarkInTransit` and `MarkPickupFailed` raise nothing in
+v1. `ReturnAuthorized` is raised by the constructor on `AuthorizeReturn`.
 
-## 2. Plan, seller and identifiers
+## 2. Decide and the read-model types
 
 ```mermaid
 classDiagram
     direction LR
-    class Account {
-        <<AggregateRoot>>
-        -id ID
-        -name string
-        -state State
-        -version int64
-        +Suspend(reason string, now Time) Event[], error
-        +Reinstate(now Time) Event[], error
-        +EnsureActive() error
-        +OwnerRef() string
+    class Decide {
+        <<Function>>
+        +Decide(in DecideInput) Disposition, error
+        -keepEligible(in DecideInput) bool
     }
-    class Plan {
-        <<AggregateRoot>>
-        -id ID
-        -sellerID string
-        -destination string
-        -packing PackingOption
-        -lines Line[]
-        -state State
-        -version int64
-        +Confirm(now Time) Event[], error
-        +Cancel(now Time) error
-        +EnsureConfirmed() error
-        +PlannedByItem() map
-    }
-    class Line {
+    class DecideInput {
         <<ValueObject>>
-        +CatalogItemID string
-        +GTIN string
-        +QtyEaches int
+        +Lines Line[]
+        +Method Method
+        +NearestNodeID string
+        +OriginNodeID string
     }
-    class GTIN {
+    class OrderGroup {
         <<ValueObject>>
-        -digits14 string
+        +OrderID string
+        +GroupNo int
+        +Status GroupStatus
+        +DestinationPostalPrefix string
+        +Lines PlacedLine[]
     }
-    class SSCC {
+    class GroupStatus {
+        <<Enumeration>>
+        PROMISED
+        LOCKED
+        SHIPPED
+        DELIVERED
+        LOST
+        RETURNED
+        +Authorizable() bool
+    }
+    class Node {
         <<ValueObject>>
-        -digits18 string
+        +NodeID string
+        +Type NodeType
+        +RegionID string
+        +Lifecycle NodeLifecycle
     }
-    Plan "1" *-- "1..*" Line
-    Line --> GTIN
-    Plan ..> Account : sellerID
+    class PrefixAssignment {
+        <<ValueObject>>
+        +PostalPrefix string
+        +RegionID string
+        +AssignmentVersion int64
+    }
+    class GroupOrigin {
+        <<ValueObject>>
+        +NodeID string
+        +OwnersByItem map
+    }
+    Decide ..> DecideInput
+    DecideInput ..> Line
+    DecideInput ..> Node : NearestNodeID
+    DecideInput ..> GroupOrigin : OriginNodeID
+    OrderGroup ..> GroupStatus
+    GroupStatus ..> PrefixAssignment : region via prefix
 ```
 
-Source: `internal/domain/seller/seller.go`, `internal/domain/inboundplan/plan.go`, `internal/domain/shared/gs1`. The GTIN
-parser accepts the short GS1 forms, checks the mod-10 digit and returns the 14-digit form; the SSCC parser needs exactly
-18 digits with a valid mod-10 digit. A client-supplied check digit is never trusted.
+Source: `internal/domain/returnauthorization/decide.go`, `internal/domain/network/network.go`. `Decide` is pure: it
+takes only what the read models resolved, performs no I/O, so the authorize use case is one unit of work. The
+`ReturnlessThresholdCents = 1500` constant lives beside it. `shared` holds `Event`, `ErrValidation` and
+`ErrIllegalTransition`; the port errors (`ErrNotFound`, `ErrConcurrentUpdate`, `ErrGroupNotShipped`,
+`ErrLabelUnavailable`) live in `internal/application/ports`.
 
 ## 3. Hexagonal layout
 
 ```mermaid
 flowchart TB
     subgraph IN["inbound adapters"]
-        HTTP["http seller API"]
-        CONS["kafka consumers"]
+        HTTP["http returns API"]
+        CONS["kafka consumers x4"]
         MCP["mcp and a2a reads"]
     end
     subgraph APP["application"]
         UC["use cases and ports"]
     end
     subgraph DOM["domain"]
-        AGG["seller, inboundplan,<br/>inboundshipment, scorecard"]
+        AGG["returnauthorization,<br/>network, shared"]
     end
     subgraph OUT["outbound adapters"]
         PG["postgres repos<br/>outbox, inbox"]
         RELAY["outbox relay to kafka"]
-        SS["sscc issuer, ids, clock"]
+        LB["labels client, ids, clock"]
     end
     HTTP --> UC
     CONS --> UC
     MCP --> UC
     UC --> AGG
     UC --> PG
-    UC --> SS
+    UC --> LB
     PG --> RELAY
 ```
 
 Source: `internal/adapters/{inbound,outbound}`, `internal/application`; the dependency rule is enforced by
 `TestHexagonalArchitecture` (see [Testing](/docs/development/testing) and [Architecture](/docs/overview/architecture)).
+The `labels` client is the ONLY outbound HTTP adapter ([ADR 0005](/docs/adr/0005-the-reverse-label-route)); the MCP and
+A2A adapters wire the read use cases only, never a write seam ([ADR 0006](/docs/adr/0006-read-only-mcp-server)).

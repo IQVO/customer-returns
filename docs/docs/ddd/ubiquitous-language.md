@@ -8,58 +8,57 @@ description: "The terms customer-returns speaks, mapped to the Go identifiers in
 
 # Ubiquitous language
 
-The terms this context owns, with the Go identifiers the service uses (`package.Type`). Where a word is also a GS1 term,
-the definition says what this model means by it. The design source is `network/model/model.yaml` in IQVO/warehouse-docs;
-the aggregates are in [Aggregate Design Canvas](/docs/ddd/aggregate-design-canvas).
+The terms this context owns, with the Go identifiers the service uses (`package.Type`). Where a word is also a retail
+term, the definition says what this model means by it. The design source is `network/model/model.yaml` in
+IQVO/warehouse-docs and [ADR 0001](/docs/adr/0001-customer-returns-bounded-context); the aggregate is in
+[Aggregate Design Canvas](/docs/ddd/aggregate-design-canvas).
 
 ## This context's terms
 
 | Term | Definition | Code identifier | Not to be confused with |
 | --- | --- | --- | --- |
-| **Seller** | An organisation that sends its own stock to the network. | `seller.Account`, `seller.ID` | A **Vendor** (vendor-connectivity), which operates fulfillment nodes. One organisation could be both; the model keeps the two roles apart. |
-| **Owner / Seller of Record** | Whose stock it is. `ownerRef` equals the `sellerId`. | `seller.ID` (`shared.ValidOwnerRef`), `Account.OwnerRef()` | The operator of the node that holds the stock. |
-| **Seller state** | `ACTIVE` or `SUSPENDED`; only an active seller plans, packs and ships. | `seller.Active`, `seller.Suspended`, `seller.ErrSellerSuspended` | The seller's compliance tier. |
-| **Inbound Plan** | A seller's declaration, in eaches, of what it will send to one node, with a packing option. States `DRAFT`, `CONFIRMED`, `CANCELLED`. | `inboundplan.Plan` | A purchase order (vendor-connectivity), which flows the other way. |
-| **Packing Option** | `INDIVIDUAL` (cartons are free logistic units) or `CASE_PACKED` (master cartons of one item). | `inboundplan.PackingOption` | A pack level. |
-| **Inbound Shipment** | One physical consignment of a plan to a node: cartons, labels, receipt outcome. States `DRAFT`, `LABELLED`, `SHIPPED`, `RECEIVING`, `CLOSED`, `CLOSED_WITH_DISCREPANCY`. | `inboundshipment.Shipment` | A package shipment to a customer (shipping-and-tracking). |
-| **Carton** | One outer carton of a shipment, identified by an SSCC; sealed when the shipment is labelled. | `inboundshipment.Carton` | A customer **Package**. |
-| **Master Carton** | A carton holding one item at the quantity of its CASE level. | `Carton` with `inboundshipment.HomogeneousCase` | A pallet. |
-| **Mixed Carton** | A carton with no pack GTIN, identified by its SSCC and manifest. | `Carton` with `inboundshipment.Mixed` | A master carton with a sticker. |
-| **Each** | The lowest packaging level; the unit of every quantity (`qtyEaches`). | `network.Each` | A carton holding one unit. |
-| **Inner Pack** | An intermediate package of several eaches. No flow uses it in this version. | `network.Inner` | A case. |
-| **Case Pack** | The number of eaches in one case, `unitsPerPack`; at least 2 for a valid CASE level. | `network.PackLevel.UnitsPerPack`, `network.ActiveCaseUnits` | The number of cartons. |
-| **GTIN** | The identifier of an item at one packaging level; stored as 14 digits; variable-measure GTINs (indicator 9) are refused. | `gs1.GTIN`, `gs1.RejectVariableMeasure` | A SKU or a `catalogItemId`, which are the network's own ids. |
-| **SSCC** | The 18-digit identifier of one logistic unit, unique network-wide, with a mod-10 check digit. | `gs1.SSCC`, `inboundshipment.ErrInvalidSscc`, `ErrSsccNotUnique` | A GTIN: an SSCC identifies one carton, a GTIN a kind of item. |
-| **SSCC issuance** | The network builds an SSCC from its own GS1 company prefix when the seller supplies none. | `ports.SsccIssuer`, `sscc.Issuer` | Accepting a seller's SSCC. |
-| **Label** | The printable data of a carton: reference `LBL-<sscc>`, GS1-128 element string `(00)<sscc>`, human-readable line, content summary. Rendering is the seller's job. | `views.Label` | The shipment's `LABELLED` state. |
-| **Manifest** | The cartons and their contents as frozen at labelling; published on `InboundShipmentLabelled`. | `inboundshipment.InboundShipmentLabelled` | The plan, which is in eaches only. |
-| **Inbound Receipt** | The vendor's carton-level answer for a shipment, per carton `RECEIVED`, `MISSING`, `UNEXPECTED` or `DAMAGED` with counted eaches per GTIN. | `inboundshipment.Receipt`, `ReceiptCarton`, `ReceiptStatus` | A goods receipt in the vendor's system. |
-| **Discrepancy** | A recorded difference between manifest and receipt, never a correction: kind `MissingCarton`, `UnexpectedCarton`, `Damaged`, `Short`, `Over`. | `inboundshipment.InboundDiscrepancyRecorded` | A compliance violation. |
-| **Compliance violation** | A coded breach reported on a carton (plus the context's own `UNMANIFESTED_CARTON`). | `inboundshipment.SellerComplianceViolationRecorded`, `CodeUnmanifestedCarton` | A discrepancy. |
-| **Seller scorecard** | An informational rolling-window (7d or 30d) read of a seller's receipt accuracy, discrepancy rate per shipment and violations. | `scorecard.Card`, `scorecard.Compute` | A suspension: it never acts. |
-| **Compliance tier** | `GOOD`, `WATCH` or `AT_RISK`: the worst of three signals (accuracy below 0.98 or 0.90; discrepancies per shipment at least 0.5 or 2.0; violations at least 1 or 5). | `scorecard.Tier`, `scorecard.TierFor` | The seller state. |
-| **Node able to receive** | A node whose view is `ACTIVE` and of type `FULFILLMENT_CENTER` or `INBOUND_CROSS_DOCK`. | `network.Node.CanReceive`, `ErrNodeCannotReceive` | A node that exists. |
-| **Inbound limits** | A node's declared carton `maxCartonWeightG`, `maxCartonDimsMm`, `acceptsPallets`, `requiresSscc`. | `network.InboundLimits` | The plan's quantities. |
-| **Break Case** | Opening a sealed case at a vendor node. Not a network event and not modelled here. | none | Any state of `Carton`. |
+| **Return Authorization** | The shopper-facing decision that one order group may come back, with its disposition decided at authorization. Root id `ret-<uuid>`. States `AUTHORIZED`, `IN_TRANSIT`, `RECEIVED`, `CLOSED_KEEP`, `CANCELLED`, `PICKUP_FAILED` (reserved). | `returnauthorization.ReturnAuthorization`, `ID` | A refund (no money moves here) or a carrier pickup order. |
+| **Order group** | The unit a shopper returns: one `orderId` and `groupNo` of a placed customer order. | `network.OrderGroup`, `order_group_views` | The whole order. |
+| **Line** | One authorized order line: `lineNo`, `catalogItemId`, `quantity`, optional `unitPriceCents`, `ownerRef`. | `returnauthorization.Line` | A package or an outcome line. |
+| **Reason** | Why the shopper returns: `DEFECTIVE`, `NOT_AS_DESCRIBED`, `WRONG_ITEM`, `NOT_NEEDED`, `OTHER`. Codes only, never free text. | `returnauthorization.Reason`, `Reason.Valid` | A cancel reason. |
+| **Disposition** | What the shopper does with the goods: `KEEP` (returnless), `NEAREST_RETURNS_CENTER`, `ORIGIN_NODE`. Decided here, never chosen by the caller. | `returnauthorization.Disposition`, `Decide` | The method. |
+| **Returnless refund (KEEP)** | When the caller-declared total is within `ReturnlessThresholdCents` (1500), every price is known and the method is not PICKUP: no destination, no label, `CLOSED_KEEP` at once. | `ReturnlessThresholdCents`, `keepEligible`, `StateClosedKeep` | A discount or a partial refund. |
+| **Method** | How the goods travel back: `DROP_OFF` (live, the default) or `PICKUP` (activation-gated, dormant in v1). | `returnauthorization.Method` | The disposition. |
+| **Pickup window** | The promised doorstep window of a PICKUP return, inside `[authorizedAt, expiresAt]`, both bounds. | `PickupWindowStart`, `PickupWindowEnd` | The authorization's validity. |
+| **Returns centre** | An `ACTIVE` node of type `RETURNS_CENTER` serving the group's region; the `NEAREST_RETURNS_CENTER` destination. | `returns_network_nodes`, `network.Node` | Any node (fulfillment centres are origins, not destinations). |
+| **Origin node** | The node that fulfilled the group, named authoritatively by a sourcing lock fact; the `ORIGIN_NODE` destination. | `network.GroupOrigin`, `group_origins` | The destination node. |
+| **Destination node** | Where the goods go: the returns centre or the origin node; `""` for KEEP. | `DestinationNodeID` | The ship-to address, which never enters this context. |
+| **Postal prefix** | The PII-safe prefix of the group's destination kept to resolve the region. | `OrderGroup.DestinationPostalPrefix`, `service_area_prefixes` | The full address. |
+| **Reverse label** | The carrier label the shipping context issues on `POST /return-labels`; this context keeps only the tracking number and the destination node id. | `ports.LabelIssuer`, `usecases.IssueLabel` | An outbound shipping label. |
+| **Package / tracking number** | One linked reverse label of a return; at most `MaxPackagesPerReturn` (5), each linked once. | `LinkLabel`, `TrackingNumbers` | A line of the return. |
+| **Outcome** | The returns centre's graded receipt of what came back, per item `qtyRestockable` and `qtyUnsellable`. | `ApplyOutcome`, `OutcomeLine` | The authorization itself. |
+| **Unexpected line** | A graded line beyond the authorization: recorded on the outcome facts, flagged, never published, never restocked. | `recordUnexpected`, `return_outcomes` | A discrepancy to reconcile. |
+| **Expiry** | `authorizedAt` + 30 days (`ReturnAuthorizationTTL`), enforced lazily on the next touch; there is no sweeper. | `expiresAt`, `expireLazily`, `expireAndReject` | A batch job. |
+| **Cancellation** | Allowed while `AUTHORIZED`: reason `SHOPPER_REQUESTED` (the shopper) or `EXPIRED` (the lazy expiry). | `Cancel`, `CancelReason` | An outcome or a rejection. |
+| **Prices absent** | At least one line carries no declared unit price; KEEP is impossible and the view says so. | `PricesAbsent` | A zero price (which is a known price). |
+| **ownerRef** | Whose stock the item was, from the sourcing release fact; echoed on events for restock attribution. | `Line.OwnerRef`, `shared.ValidOwnerRef` | The shopper. |
+| **Each** | The unit of every quantity: units of a catalog item, never cartons or pallets. | `Line.Quantity`, `QtyRestockable`, `QtyUnsellable` | A package count. |
 
 ## Neighbour terms this context reads
 
 | Term | Definition (owner's) | Owner |
 | --- | --- | --- |
-| **Catalog Item** | The network's own entry for a product, independent of who ships it. | offer-availability |
-| **Packaging Hierarchy**, **Pack Level** | The pack levels of one catalogue item (`EACH`, `INNER`, `CASE`, `PALLET`), each with its own GTIN and fixed content quantity. Held locally as `catalog_pack_levels`. | offer-availability |
-| **Node**, **Operational Profile** | A building and its declared profile with inbound limits. Held locally as `node_inbound_views`. | node-topology |
-| **Vendor**, **Vendor API**, **Inbound Receipt** | An organisation operating nodes, its Open Host Service, and its carton-level report of what arrived. | vendor-connectivity |
+| **Order group status** | `PROMISED`, `LOCKED`, `SHIPPED`, `DELIVERED`, `LOST`, `RETURNED`; only SHIPPED and DELIVERED are authorizable. Held locally as `order_group_views`. | customer-ordering |
+| **Fulfillment assignment** | Which node released or locked the fulfillment of a group, with the per-item owners. Held locally as `group_origins`. | order-sourcing |
+| **Node**, **Service area** | A building with a lifecycle and type, and which region a postal prefix serves. Held locally as `returns_network_nodes` and `service_area_prefixes`. | node-topology |
+| **Vendor return advice**, **graded outcome** | The Vendor API's advice a returns centre works from, and the graded outcome it submits back through `VendorReturnOutcomeSubmitted`. | vendor-connectivity |
+| **Catalog item**, **listing restock** | The network's own entry for a product, and the restocking of its listings from `ReturnCompleted`. | offer-availability |
 
 ## Fleet translation
 
-None at the language level. The warehouse-systems fleet receives the manifest as the Vendor API's published language and
-translates it inside its own anti-corruption layer; this repository does not model that side
+None at the language level. The warehouse-systems fleet's returns-processing context polls the Vendor API of
+vendor-connectivity for return advices and submits graded outcomes; this repository does not model that side
 ([Integration](/docs/ecosystem/integration#edges-that-do-not-exist)).
 
 ## Terms the model leaves open
 
 | Term | What is missing |
 | --- | --- |
-| Compliance codes | The vocabulary of codes a vendor may report on a receipt is not enumerated; the service passes them through. |
-| Carton `kind` | `HOMOGENEOUS_CASE` and `MIXED` are this model's names. |
+| Refund | Fees and money are facts to this context, never computed or moved; the refund itself lives outside ([ADR 0001](/docs/adr/0001-customer-returns-bounded-context)). |
+| Pickup failure | `PICKUP_FAILED` and its `PackageReturnInitiated` trigger are reserved for the last-mile pickup wave; no transition raises them in v1 ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)). |
+| Unexpected-line disposition | What the warehouse fleet's exception flow does with unexpected lines is not modelled here; they stay recorded facts. |

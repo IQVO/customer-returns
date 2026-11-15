@@ -16,58 +16,64 @@ upstream to downstream.
 
 ```mermaid
 flowchart LR
+    CO["customer-ordering<br/>Generic"]
     NT["node-topology<br/>Supporting"]
-    OA["offer-availability<br/>Supporting"]
+    OS["order-sourcing<br/>Core"]
     VC["vendor-connectivity<br/>Supporting"]
-    SI["customer-returns<br/>Supporting"]
-    NT -->|"U to D: CF<br/>Kafka node events"| SI
-    OA -->|"U to D: CF<br/>Kafka catalog and packaging"| SI
-    VC -->|"U to D: C/S<br/>Kafka InboundReceiptSubmitted"| SI
+    ST["shipping-and-tracking<br/>Generic"]
+    CR["customer-returns<br/>Supporting"]
+    CO -->|"U to D: CF<br/>Kafka order group facts"| CR
+    NT -->|"U to D: CF<br/>Kafka node and service-area facts"| CR
+    OS -->|"U to D: CF<br/>Kafka fulfillment facts"| CR
+    VC -->|"U to D: C/S<br/>Kafka VendorReturnOutcomeSubmitted"| CR
+    ST -->|"U to D: C/S<br/>REST POST /return-labels"| CR
 ```
 
-Source: `internal/adapters/inbound/kafka/consumers.go` (topics and types consumed).
+Source: `internal/adapters/inbound/kafka/consumers.go` (topics and types consumed), `internal/adapters/outbound/labels`
+(the one HTTP client; [ADR 0005](/docs/adr/0005-the-reverse-label-route)).
 
 ### Downstream: who depends on customer-returns
 
 ```mermaid
 flowchart LR
-    SI["customer-returns<br/>Supporting"]
+    CR["customer-returns<br/>Supporting"]
     VC["vendor-connectivity<br/>Supporting"]
-    SEL["sellers<br/>external"]
-    AN["analytics<br/>no in-org consumer"]
-    NF["network-fulfillment<br/>fleet"]
-    NP["node-performance<br/>Supporting"]
-    SI -->|"U to D: C/S<br/>Kafka InboundShipmentLabelled,<br/>Shipped, Received"| VC
-    SI -->|"U to D: CF<br/>Kafka InboundShipmentShipped"| NP
-    SI -->|"OHS<br/>REST seller API"| SEL
-    SI -.->|"U to D: PL<br/>analytics-only events"| AN
-    SI -. "Separate Ways<br/>manifest only via Vendor API" .- NF
+    OA["offer-availability<br/>Supporting"]
+    SH["shopper / storefront<br/>external"]
+    RP["returns-processing<br/>fleet"]
+    CR -->|"U to D: C/S<br/>Kafka the four return events"| VC
+    CR -->|"U to D: CF<br/>Kafka ReturnCompleted"| OA
+    CR -->|"OHS<br/>REST returns API"| SH
+    CR -. "Separate Ways<br/>advices only via the Vendor API" .- RP
 ```
 
 Source: `internal/adapters/outbound/kafka/encoder.go` (topic routing), `internal/adapters/inbound/http/server.go` (REST),
 `apis/asyncapi.yaml`.
 
-Omitted: the contexts with no edge to this one, which are Separate Ways: `delivery-promise`, `customer-ordering`,
-`order-sourcing`, `linehaul-transportation`, `last-mile-delivery`, `shipping-and-tracking`. The service also exposes a
-read-only MCP server and A2A agent ([API reference](/docs/api-reference)); they add no relationship.
+Omitted: the contexts with no edge to this one, which are Separate Ways: `delivery-promise`, `linehaul-transportation`,
+`last-mile-delivery` (until the pickup wave). The service also exposes a read-only MCP server and A2A agent
+([API reference](/docs/api-reference)); they add no relationship.
 
 ## Relationships
 
 | Neighbour | Direction | Pattern | Channel | Messages | Why this pattern |
 | --- | --- | --- | --- | --- | --- |
-| `node-topology` | U → D | Conformist | Kafka `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | A node's status, capabilities and inbound limits are node-topology's facts. Kept in `node_inbound_views`. |
-| `offer-availability` | U → D | Conformist | Kafka `retailnetwork.offer-availability.events` | `CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` | The packaging hierarchy and its GTINs are the catalogue's. Kept in `catalog_pack_levels`. |
-| `vendor-connectivity` | U → D (SI downstream) | Customer/Supplier | Kafka `retailnetwork.vendor-connectivity.events` | `InboundReceiptSubmitted` | The receipt shape is the published language; customer-returns states what it needs. |
-| `vendor-connectivity` | U → D (SI upstream) | Customer/Supplier | Kafka `retailnetwork.customer-returns.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | The Vendor API needs the manifest and the closing status; customer-returns publishes what it needs. |
-| `node-performance` | U → D (SI upstream) | Conformist (node-performance conforms) | Kafka `retailnetwork.customer-returns.events` | `InboundShipmentShipped` | The shipped instant starts the inbound timeliness metric; node-performance keeps what it needs. |
-| Sellers (external) | U → D | Open Host Service | REST (seller-facing, no auth) | plans, shipments, cartons, labels | A published, versionable seller API. |
-| Analytics | U → D | Published Language | Kafka `retailnetwork.customer-returns.analytics` | six analytics-only events | No consumer inside the organisation. |
-| `network-fulfillment` (warehouse-systems fleet) | none | Separate Ways | none | none | The hard boundary: the fleet reads the manifest through the Vendor API of vendor-connectivity only. |
+| `customer-ordering` | U → D | Conformist | Kafka `retailnetwork.customer-ordering.events` | `CustomerOrderPlaced`, `ShopperNoticeDecided` | The group's status and placed lines are customer-ordering's facts. Kept in `order_group_views`; only SHIPPED and DELIVERED are authorizable. |
+| `node-topology` | U → D | Conformist | Kafka `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `ServiceAreaAssigned` | Which nodes are ACTIVE returns centres, and which region a postal prefix belongs to. Kept in `returns_network_nodes` and `service_area_prefixes`. |
+| `order-sourcing` | U → D | Conformist | Kafka `retailnetwork.order-sourcing.events` | `FulfillmentReleasedToNode`, `FulfillmentLocked` | Which node fulfilled the group (the lock) and whose stock each item took (the release's `ownerRef`s). Kept in `group_origins`. |
+| `vendor-connectivity` | U → D (CR downstream) | Customer/Supplier | Kafka `retailnetwork.vendor-connectivity.events` | `VendorReturnOutcomeSubmitted` | The graded outcome is the published language; customer-returns states what it needs. |
+| `vendor-connectivity` | U → D (CR upstream) | Customer/Supplier | Kafka `retailnetwork.customer-returns.events` | `ReturnAuthorized`, `ReturnLabelIssued`, `ReturnCompleted`, `ReturnCancelled` | The Vendor API builds its return advices from these facts; customer-returns publishes what it needs. |
+| `offer-availability` | U → D (CR upstream) | Conformist (offer-availability conforms) | Kafka `retailnetwork.customer-returns.events` | `ReturnCompleted` | The restock fact (`qtyRestockable` per item); offer-availability keeps what it needs. |
+| `shipping-and-tracking` | U → D | Customer/Supplier (CR the customer) | REST `POST /return-labels` | reverse label request and answer | The one synchronous in-org call: the ship-to is PII the shipping context owns; the route is config-gated and tolerant ([ADR 0005](/docs/adr/0005-the-reverse-label-route)). |
+| Shopper / storefront (external) | U → D | Open Host Service | REST (returns API, no auth) | authorize, label, cancel, reads | A published, versionable shopper-facing API behind the storefront. |
+| `returns-processing` (warehouse-systems fleet) | none | Separate Ways | none | none | The hard boundary: the fleet works the returns centres' side through the Vendor API of vendor-connectivity only. |
 
 ## Notes on the patterns
 
-- **No Shared Kernel.** `sscc`, `gtin` and `nodeId` are values copied from events; the GTIN and SSCC validation rules
-  are re-implemented in each service that receives them (here `internal/domain/shared/gs1`).
-- **Customer/Supplier in both directions with vendor-connectivity, by events only.** There is no runtime cycle.
-- **No synchronous call.** A plan against a cold read model is refused, not slowed
-  ([Integration](/docs/ecosystem/integration)).
+- **No Shared Kernel.** `orderId`, `nodeId`, `catalogItemId` and `ownerRef` are values copied from events; each consumer
+  keeps its own projection and never calls the producer back.
+- **Customer/Supplier in both directions with vendor-connectivity, by events only.** The advice flows one way, the
+  graded outcome the other; there is no runtime cycle.
+- **Exactly one synchronous call.** The reverse-label route is the network-sanctioned exception
+  ([ADR 0005](/docs/adr/0005-the-reverse-label-route)); a lagging read model is refused (`group-not-shipped`,
+  `no-return-destination`), not slowed ([Integration](/docs/ecosystem/integration)).
