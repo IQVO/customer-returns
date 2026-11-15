@@ -18,12 +18,12 @@ decoded only in `internal/adapters/kafka/cloudevents`. Field-level payloads are 
 | `specversion` | `1.0` |
 | `id` | a UUID minted once, when the event is encoded into the outbox; a relay retry republishes the same id |
 | `source` | `/retailnetwork/customer-returns` |
-| `type` | `com.retailnetwork.partner.customer-returns.<entity>.<EventName>`; entity `seller`, `inboundplan` or `inboundshipment` |
-| `subject` | the aggregate root id: `sellerId`, `planId` or `shipmentId` (for `SellerComplianceViolationRecorded`, the `sellerId`) |
+| `type` | `com.retailnetwork.commerce.customer-returns.returnauthorization.<EventName>`; the single entity is `returnauthorization` |
+| `subject` | the aggregate root id: the `authorizationId` |
 | `time` | the instant the fact became true |
 | `datacontenttype` | `application/json` |
-| `dataschema` | `urn:retailnetwork:customer-returns:<stream>:<EventName>:v1`, stream `events` or `analytics` |
-| Kafka key | the `subject`, so one aggregate's events stay ordered on one partition |
+| `dataschema` | `urn:retailnetwork:customer-returns:<stream>:<EventName>:v<version>`, stream `events`; the version is the aggregate version after the change |
+| Kafka key | the `subject`, so one authorization's events stay ordered on one partition |
 | Kafka header | `content-type: application/cloudevents+json; charset=UTF-8` |
 
 Source: `internal/adapters/kafka/cloudevents/cloudevents.go`, `internal/adapters/outbound/kafka/encoder.go`.
@@ -35,40 +35,34 @@ the in-process outbox relay. Delivery is at-least-once; consumers dedupe on `id`
 
 | Event | Full `type` | Topic | Raised by | Consumers |
 | --- | --- | --- | --- | --- |
-| `SellerOnboarded` | `com.retailnetwork.partner.customer-returns.seller.SellerOnboarded` | `retailnetwork.customer-returns.analytics` | `OnboardSeller` | none in the organisation |
-| `SellerSuspended` | `com.retailnetwork.partner.customer-returns.seller.SellerSuspended` | `retailnetwork.customer-returns.analytics` | `SuspendSeller` (not when already suspended) | none |
-| `SellerReinstated` | `com.retailnetwork.partner.customer-returns.seller.SellerReinstated` | `retailnetwork.customer-returns.analytics` | `ReinstateSeller` (not when already active) | none |
-| `InboundPlanConfirmed` | `com.retailnetwork.partner.customer-returns.inboundplan.InboundPlanConfirmed` | `retailnetwork.customer-returns.analytics` | `ConfirmInboundPlan` | none |
-| `InboundShipmentLabelled` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentLabelled` | `retailnetwork.customer-returns.events` | `LabelShipment` | vendor-connectivity |
-| `InboundShipmentShipped` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentShipped` | `retailnetwork.customer-returns.events` | `ShipInboundShipment` | vendor-connectivity, node-performance |
-| `InboundShipmentReceived` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundShipmentReceived` | `retailnetwork.customer-returns.events` | `ApplyInboundReceipt`, once, when the shipment closes | vendor-connectivity |
-| `InboundDiscrepancyRecorded` | `com.retailnetwork.partner.customer-returns.inboundshipment.InboundDiscrepancyRecorded` | `retailnetwork.customer-returns.analytics` | `ApplyInboundReceipt`, per discrepancy, also while the shipment is `RECEIVING` | none |
-| `SellerComplianceViolationRecorded` | `com.retailnetwork.partner.customer-returns.seller.SellerComplianceViolationRecorded` | `retailnetwork.customer-returns.analytics` | `ApplyInboundReceipt`, per distinct compliance code of a carton | none |
+| `ReturnAuthorized` | `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnAuthorized` | `retailnetwork.customer-returns.events` | `AuthorizeReturn` (every disposition, KEEP included) | vendor-connectivity (opens the return advice) |
+| `ReturnLabelIssued` | `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnLabelIssued` | `retailnetwork.customer-returns.events` | `IssueLabel`, once per package | vendor-connectivity |
+| `ReturnCompleted` | `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCompleted` | `retailnetwork.customer-returns.events` | `OnOutcomeSubmitted`, the first fitting graded outcome | offer-availability (restocks listings), vendor-connectivity |
+| `ReturnCancelled` | `com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCancelled` | `retailnetwork.customer-returns.events` | `CancelReturn` (`SHOPPER_REQUESTED`), the lazy expiry (`EXPIRED`) | vendor-connectivity |
 
-The routing is `streamFor` in `encoder.go`: the three shipment events other contexts consume go to the events topic;
-every other fact goes to the analytics topic. Creating or cancelling a plan, creating a shipment and adding cartons
-publish nothing: a draft is private to the seller and the cartons travel with `InboundShipmentLabelled`.
-
-Value sets: the shipment `status` of `InboundShipmentReceived` is `CLOSED` or `CLOSED_WITH_DISCREPANCY`; the carton
-`status` is `RECEIVED`, `MISSING`, `UNEXPECTED` or `DAMAGED`; the discrepancy `kind` is one of `MissingCarton`,
-`UnexpectedCarton`, `Damaged`, `Short`, `Over` (`internal/domain/inboundshipment/receipt.go`); the compliance `code` is
-passed through from the vendor's receipt, plus the context's own `UNMANIFESTED_CARTON`.
+All four types go to the one integration topic (`buildMessage` in `encoder.go`); the analytics topic
+`retailnetwork.customer-returns.analytics` is reserved but carries no event in v1. Reads, `MarkInTransit` and unexpected
+outcome lines publish nothing: a read raises no fact, transit is observed rather than commanded, and unexpected lines
+stay recorded facts ([ADR 0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue)).
 
 ## Consumed
 
-One consumer per topic, each under a mandatory consumer group; dispatch is on the full `type`; effects are idempotent on
-the CloudEvents `id` (`processed_events`).
+One consumer per topic, each under a mandatory consumer group (`ORDER_CONSUMER_GROUP`, `TOPOLOGY_CONSUMER_GROUP`,
+`SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP`); dispatch is on the full `type`; effects are idempotent on the
+CloudEvents `id` (`processed_events`).
 
 | Producer | Topic | Full `type` | Effect |
 | --- | --- | --- | --- |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | Creates the node in `node_inbound_views`. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeOperationalProfileDeclared` | Replaces the inbound limits if the revision is newer. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeActivated` | Status `ACTIVE`. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeSuspended` | Status `SUSPENDED`. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRetired` | Status `RETIRED` (terminal). |
-| offer-availability | `retailnetwork.offer-availability.events` | `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemPackagingDeclared` | Upserts the pack level. |
-| offer-availability | `retailnetwork.offer-availability.events` | `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemPackLevelRetired` | Marks the level inactive. |
-| vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.inboundreceipt.InboundReceiptSubmitted` | Records the receipt on the shipment. |
+| customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced` | Writes the group's lines, prefix and witness, `PROMISED`; never demotes a status a notice already set. |
+| customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided` | Sets the status (a terminal family fact wins); creates the row for an unknown group. |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | Creates the node in `returns_network_nodes` (PENDING). |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeActivated` | Lifecycle `ACTIVE` — the `Decide` candidate gate. |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeSuspended` | Lifecycle `SUSPENDED`. |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRetired` | Lifecycle `RETIRED` (terminal). |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned` | Upserts the prefix's region; the highest `assignmentVersion` wins. |
+| order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode` | Merges the per-item `ownerRef`s into `group_origins`. |
+| order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked` | Names the fulfilling node (the ORIGIN_NODE fallback). |
+| vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted` | Records the graded outcome; the first that fits completes the authorization. |
 
 Failure handling (retry, dead letters, poison messages) is on [Integration](/docs/ecosystem/integration#upstream-what-customer-returns-consumes).
 
@@ -76,6 +70,6 @@ Failure handling (retry, dead letters, poison messages) is on [Integration](/doc
 
 Per `CLAUDE.md`: a new event is a domain struct, an entry in `apis/asyncapi.yaml` and the `type:` line in
 [ADR 0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue), in the same commit. The fleet catalogue test
-(`TestEventCatalogueMatchesContract`) matches `com.warehouse.(wms|wes)` and `com.retailnetwork` types, so it fails the build
-if one of this repository's published `com.retailnetwork.partner.customer-returns` types is declared in the AsyncAPI file but
-missing from ADR 0004. CI `api-lint` runs Spectral on the AsyncAPI file.
+(`TestEventCatalogueMatchesContract`) matches `com.warehouse.(wms|wes)` and `com.retailnetwork` types, so it fails the
+build if one of this repository's published `com.retailnetwork.commerce.customer-returns` types is declared in the
+AsyncAPI file but missing from ADR 0004. CI `api-lint` runs Spectral on the AsyncAPI file.
