@@ -12,50 +12,45 @@ import (
 	"github.com/IQVO/customer-returns/internal/domain/shared"
 )
 
-func TestEveryTransitionBumpsTheVersionByOne(t *testing.T) {
-	t.Run("authorize starts at 1, label, transit and outcome add one each", func(t *testing.T) {
-		a := newAuth(t, NearestReturnsCenter, MethodDropOff)
-		if a.Version() != 1 {
-			t.Fatalf("fresh version = %d, want 1", a.Version())
-		}
-		if err := a.LinkLabel("trk-1", now); err != nil {
-			t.Fatalf("LinkLabel: %v", err)
-		}
-		if a.Version() != 2 {
-			t.Fatalf("version after LinkLabel = %d, want 2", a.Version())
-		}
-		if err := a.MarkInTransit(); err != nil {
-			t.Fatalf("MarkInTransit: %v", err)
-		}
-		if a.Version() != 3 {
-			t.Fatalf("version after MarkInTransit = %d, want 3", a.Version())
-		}
-		out := []OutcomeLine{{CatalogItemID: "sku-100", QtyRestockable: 2}}
-		if err := a.ApplyOutcome(out, "node-rc-1", now); err != nil {
-			t.Fatalf("ApplyOutcome: %v", err)
-		}
-		if a.Version() != 4 {
-			t.Fatalf("version after ApplyOutcome = %d, want 4", a.Version())
-		}
-	})
-	t.Run("cancel adds one", func(t *testing.T) {
-		a := newAuth(t, NearestReturnsCenter, MethodDropOff)
-		if err := a.Cancel(CancelShopperRequested, now); err != nil {
-			t.Fatalf("Cancel: %v", err)
-		}
-		if a.Version() != 2 {
-			t.Fatalf("version after Cancel = %d, want 2", a.Version())
-		}
-	})
-	t.Run("pickup failure adds one", func(t *testing.T) {
-		a := newAuth(t, NearestReturnsCenter, MethodPickup)
-		if err := a.MarkPickupFailed(now); err != nil {
-			t.Fatalf("MarkPickupFailed: %v", err)
-		}
-		if a.Version() != 2 {
-			t.Fatalf("version after MarkPickupFailed = %d, want 2", a.Version())
-		}
-	})
+func wantVersion(t *testing.T, a *ReturnAuthorization, after string, want int64) {
+	t.Helper()
+	if got := a.Version(); got != want {
+		t.Fatalf("version after %s = %d, want %d", after, got, want)
+	}
+}
+
+func TestLifecycleTransitionsBumpTheVersionByOne(t *testing.T) {
+	a := newAuth(t, NearestReturnsCenter, MethodDropOff)
+	wantVersion(t, a, "Authorize", 1)
+	if err := a.LinkLabel("trk-1", now); err != nil {
+		t.Fatalf("LinkLabel: %v", err)
+	}
+	wantVersion(t, a, "LinkLabel", 2)
+	if err := a.MarkInTransit(); err != nil {
+		t.Fatalf("MarkInTransit: %v", err)
+	}
+	wantVersion(t, a, "MarkInTransit", 3)
+	out := []OutcomeLine{{CatalogItemID: "sku-100", QtyRestockable: 2}}
+	if err := a.ApplyOutcome(out, "node-rc-1", now); err != nil {
+		t.Fatalf("ApplyOutcome: %v", err)
+	}
+	wantVersion(t, a, "ApplyOutcome", 4)
+}
+
+func TestCancelBumpsTheVersionByOne(t *testing.T) {
+	a := newAuth(t, NearestReturnsCenter, MethodDropOff)
+	if err := a.Cancel(CancelShopperRequested, now); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	wantVersion(t, a, "Cancel", 2)
+}
+
+func TestPickupFailureBumpsTheVersionByOne(t *testing.T) {
+	a := newAuth(t, NearestReturnsCenter, MethodPickup)
+	if err := a.MarkPickupFailed(now); err != nil {
+		t.Fatalf("MarkPickupFailed: %v", err)
+	}
+	wantVersion(t, a, "MarkPickupFailed", 2)
 }
 
 func TestApplyOutcomeQuantityBoundaries(t *testing.T) {
