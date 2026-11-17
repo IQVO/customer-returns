@@ -142,7 +142,7 @@ Triggers: push and pull request on `main` and `develop`, a weekly Monday schedul
 | `bdd` | `go test ./... -run TestFeatures -v` | blocking |
 | `integration` | `go test -tags=integration ./... -race -count=1` | blocking |
 | `mutation-fast` | gremlins on every package under `internal/domain` | blocking |
-| `mutation`, `drift` | exhaustive mutation, deadcode, `go mod tidy -diff`, knip, coverage-quality | scheduled and manual only; open a `harness:red` issue on a scheduled failure |
+| `mutation`, `drift` | exhaustive mutation, deadcode, `go mod tidy -diff`, coverage-quality | scheduled and manual only; open a `harness:red` issue on a scheduled failure |
 | `api-lint` | Spectral on both specs | blocking |
 | `vuln` | govulncheck | blocking |
 | `helm-lint` | `ct lint` and the Service selector test | pull requests only |
