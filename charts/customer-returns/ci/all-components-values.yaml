@@ -1,6 +1,6 @@
 # Used by `helm lint` / `ct lint`: every optional value and component set at
-# once (api + mcp + a2a + frontend, plus the optional gateway routes and the api
-# HPA). Dummy values, no password.
+# once (api + mcp + a2a + frontend + analytics projector/reports, plus the optional
+# gateway routes and the api HPA). Dummy values, no password.
 database:
   existingSecret: "customer-returns-db"
   migrationsExistingSecretKey: "MIGRATIONS_DATABASE_URL"
@@ -43,3 +43,15 @@ a2a:
       - name: warehouse-gateway
         namespace: kong
         sectionName: http
+analytics:
+  enabled: true
+  database:
+    projectorUrl: "postgres://projector@example.invalid:5432/analytics"
+    reportsUrl: "postgres://reports@example.invalid:5432/analytics"
+  reports:
+    route:
+      enabled: true
+      parentRefs:
+        - name: warehouse-gateway
+          namespace: kong
+          sectionName: http
