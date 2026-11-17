@@ -483,9 +483,10 @@ func vendorEvent(t *testing.T, id, subject, data string) kafkago.Message {
 		"com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", subject, data)}
 }
 
-// stubShippingLabels plays the shipping context's future POST /return-labels
-// route: package 3 is the outage case, everything else issues a tracking
-// number.
+// stubShippingLabels plays the shipping context's POST /return-labels route:
+// package 3 is the outage case (503 ship-to-unavailable), everything else
+// answers what the route answers on success, 201 Created with a ReturnLabel
+// (every required property of that schema).
 func stubShippingLabels(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -495,6 +496,7 @@ func stubShippingLabels(t *testing.T) *httptest.Server {
 		}
 		var body struct {
 			ReturnAuthorizationID string `json:"returnAuthorizationId"`
+			OrderID               string `json:"orderId"`
 			PackageNo             int    `json:"packageNo"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ReturnAuthorizationID == "" {
@@ -509,10 +511,20 @@ func stubShippingLabels(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		tracking := fmt.Sprintf("RN-RET-%s-%d", strings.TrimPrefix(body.ReturnAuthorizationID, "ret-"), body.PackageNo)
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"trackingNumber": fmt.Sprintf("RN-RET-%s-%d", strings.TrimPrefix(body.ReturnAuthorizationID, "ret-"), body.PackageNo),
-			"carrier":        "RN-GROUND",
+			"labelRef":              "lbl-" + tracking,
+			"trackingNumber":        tracking,
+			"carrier":               "RN-GROUND",
+			"packageNo":             body.PackageNo,
+			"orderId":               body.OrderID,
+			"tier":                  "STANDARD",
+			"status":                "ISSUED",
+			"issuedAt":              "2026-11-16T12:00:00Z",
+			"purpose":               "RETURN",
+			"returnAuthorizationId": body.ReturnAuthorizationID,
 		})
 	}))
 	t.Cleanup(srv.Close)

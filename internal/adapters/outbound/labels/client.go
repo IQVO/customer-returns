@@ -19,7 +19,7 @@ import (
 	"github.com/IQVO/customer-returns/internal/application/requests"
 )
 
-// Client is the ports.LabelIssuer over the shipping context's future
+// Client is the ports.LabelIssuer over the shipping context's
 // POST /return-labels route.
 type Client struct {
 	base string
@@ -44,14 +44,23 @@ type request struct {
 	DestinationPostalPrefix string `json:"destinationPostalPrefix"`
 }
 
+// response is what this context reads of the route's ReturnLabel answer: two
+// of its required properties, under the JSON names the shipping context's
+// apis/openapi.yaml declares. Everything else the label carries stays there.
 type response struct {
 	TrackingNumber string `json:"trackingNumber"`
 	Carrier        string `json:"carrier"`
 }
 
+// issuedStatus is the ONE success of POST /return-labels: the route answers
+// 201 Created, and a replay of the same Idempotency-Key answers that first
+// response again (201 plus Idempotency-Replayed: true), never 200.
+const issuedStatus = http.StatusCreated
+
 // IssueReturnLabel implements ports.LabelIssuer. A disabled client, a route
-// that is not live yet, or any transport failure maps to
-// ports.ErrLabelUnavailable: never a 500, never a retry storm.
+// that is not live yet, any transport failure and any answer but the 201 with
+// a tracking number map to ports.ErrLabelUnavailable: never a 500, never a
+// retry storm.
 func (c *Client) IssueReturnLabel(ctx context.Context, in requests.IssueReturnLabel) (requests.ReturnLabel, error) {
 	if c.base == "" {
 		return requests.ReturnLabel{}, ports.ErrLabelUnavailable
@@ -80,7 +89,7 @@ func (c *Client) IssueReturnLabel(ctx context.Context, in requests.IssueReturnLa
 		return requests.ReturnLabel{}, ports.ErrLabelUnavailable
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != issuedStatus {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return requests.ReturnLabel{}, ports.ErrLabelUnavailable
 	}

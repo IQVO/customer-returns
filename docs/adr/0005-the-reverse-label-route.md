@@ -22,3 +22,7 @@ A physical return needs a label the shopper can hand to a carrier. The ship-to â
 - This context has exactly one synchronous seam, config-gated and tolerant; everything else is events.
 - When the route answers anything but 200, the shopper sees `422 label-unavailable` and may retry later with the same `Idempotency-Key`; the authorization itself is unaffected.
 - The e2e integration test drives a stub of the route (issuing `RN-RET-*` tracking numbers, answering 503 for one package) to pin both sides of the contract.
+
+## Addendum 2026-11-16: the route answers 201
+
+The Decision and the Consequences above name 200 as the answer that carries a label. The route as the shipping context shipped it (its ADR 0017 and migration 0007, the numbers that replaced the 0015 and 0005 named above) answers `201 Created` with a `ReturnLabel` body, and a replay of the same `Idempotency-Key` answers that first response again: `201` plus `Idempotency-Replayed: true`, never `200`. Read "non-200" and "anything but 200" above as "anything but 201": `201` is the one success the client accepts, and every other answer, `200` included, stays `ports.ErrLabelUnavailable`. Nothing else of the Decision changes: the client still reads only `trackingNumber` and `carrier`, both required properties of `ReturnLabel`, and every error the route documents (`409`, `422`, `503`) still maps to `422 label-unavailable`.
