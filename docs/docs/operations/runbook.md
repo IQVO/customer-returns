@@ -227,3 +227,25 @@ Logs in Grafana Loki: `{namespace="warehouse-systems", app="customer-returns"}`
 consumers and the loop stop, the relay LAST (so nothing committed is stranded); the chart's
 `terminationGracePeriodSeconds` must stay above drain delay + 30s. Any `config.*`
 value change rolls the pods automatically (ConfigMap checksum annotation).
+
+## Analytics read side (ADR 0012, default off)
+
+`analytics.enabled=true` in the chart adds two Deployments from the same image: `analytics-projector` (`/app/projector`,
+no Service, admin probes on `:8091`) and `analytics-reports` (`/app/reports`, ClusterIP Service on `:80` to `:8092`;
+`analytics.reports.route.enabled` adds the Kong route `/api/customer-returns/reports`, which carries
+`konghq.com/regex-priority: "10"` because it sits inside the API route's prefix). The render is refused without a DSN
+source, `kafka.brokers` or a consumer group.
+
+- **Database**: a SEPARATE analytical Postgres (`analytics.database.projectorUrl`, a direct DSN, read-write; `reportsUrl`,
+  a read-only role) with its own schema in `analytics/migrations/` (`0001_return_facts`: `analytics_processed_events`,
+  `return_authorizations`, `return_receipts`), applied by `cmd/projector` at boot. It is a projection of the service's own
+  topic and can be dropped and rebuilt by replaying it.
+- **Kafka**: reads `retailnetwork.customer-returns.events` under the group `customer-returns-analytics`
+  (`analytics.projector.consumerGroup`, stable); poison only goes to `retailnetwork.customer-returns.analytics.dlq`.
+  Transient failures retry forever with capped backoff and are never dead-lettered.
+- **Probe the route**: `curl <gateway>/api/customer-returns/reports/freshness`; a 200 `{asOf, lagSeconds}` proves the
+  route and the projection (both `null` until the first event).
+- **Reports lag or look empty**: check `/reports/freshness` `lagSeconds`, the projector logs (`analytics: skipping...`
+  sampled WARN, `dead-lettering...` ERROR) and the DLQ topic. To rebuild, point the projector at a new empty analytical
+  database or a new consumer group (a brand-new group starts at the earliest retained offset).
+- **No return rate, no refund figures**: by design (ADR 0012); do not look for them in these reports.

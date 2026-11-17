@@ -25,7 +25,7 @@ something the code decides. The design sources are the network model (`network/m
 | [EventStorming](/docs/ddd/eventstorming) | [EventStorming glossary and cheat sheet](https://github.com/ddd-crew/eventstorming-glossary-cheat-sheet) | Process-level boards with sticky colours and hotspots. |
 | [Ubiquitous language](/docs/ddd/ubiquitous-language) | Glossary | Every term with the Go identifier that implements it. |
 | [Class diagrams](/docs/ddd/class-diagram) | UML class diagram | Domain types and the hexagonal layout. |
-| [Entity-relationship diagram](/docs/ddd/entity-relationship) | ER diagram | The Postgres schema of migrations 0001 to 0003: nine tables and one sequence. |
+| [Entity-relationship diagram](/docs/ddd/entity-relationship) | ER diagram | The Postgres schema of migrations 0001 to 0003: nine tables and one sequence; plus the three tables of the optional analytical database (`analytics/migrations/0001_return_facts.up.sql`, ADR 0012). |
 | [Sequence diagrams](/docs/ddd/sequence-diagrams) | UML sequence diagram | `AuthorizeReturn`, `IssueLabel`, the outcome consumer and cancellation, with error branches. |
 | [Domain events](/docs/ddd/domain-events) | Event catalogue | The four published events with payloads and an example envelope; the ten consumed types. |
 

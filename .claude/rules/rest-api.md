@@ -28,6 +28,7 @@ the caller.
   `label-unavailable` while that route is not configured
 - `GET /return-authorizations/{id}/events` is deliberately NOT built (audit = the event stream).
 - `GET /healthz` (liveness), `GET /readyz` (drain gate, Postgres ping, Kafka metadata): not business operations.
+- Not served by `cmd/api`: the read-only `GET /reports/...` routes (tag `Reports`, `cmd/reports`, `internal/adapters/inbound/reportshttp`, ADR 0012; rules in `.claude/rules/analytics.md`).
 
 ## Conventions
 

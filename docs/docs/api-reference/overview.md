@@ -40,6 +40,8 @@ for a walk through the seller API.
 | Inbound Shipments | `GET /inbound-shipments/{shipmentId}/labels` | `getShipmentLabels` | `200`, one label per carton |
 | Inbound Shipments | `POST /inbound-shipments/{shipmentId}/dispatches` | `shipInboundShipment` | `200`, `SHIPPED` |
 | Inbound Shipments | `GET /inbound-shipments/{shipmentId}` | `getInboundShipment` | `200`, the shipment with its cartons |
+| Reports | `GET /reports/returns-performance?from=&to=` | `getReturnsPerformanceReport` | `200`, per UTC day: returns authorized and received, time to receive p50/p95, plus the reason Pareto (at most 5) and freshness; `400 invalid-report-range`. Served by `cmd/reports` on `:8092` (ADR 0012), only with the chart's `analytics.enabled` |
+| Reports | `GET /reports/freshness` | `getReportFreshness` | `200`, `asOf` and `lagSeconds` of the analytics projection (both `null` before the first event) |
 | Health | `GET /healthz`, `GET /readyz` | none (not in the spec) | `200`; `503` while draining or when Postgres or Kafka is unreachable |
 
 The `:verb` actions share a chi pattern per resource (`/sellers/{sellerAction}`, `/inbound-plans/{planAction}`,
