@@ -74,10 +74,10 @@ sequenceDiagram
     UC->>A: Get, expiry checked
     UC->>A: open and not KEEP?
     UC->>L: POST /return-labels outside the unit of work
-    alt route off or non-200
+    alt route off or non-201
         L-->>UC: ErrLabelUnavailable
         UC-->>H: 422 label-unavailable, nothing else happens
-    else 200 with tracking number
+    else 201 with tracking number
         UC->>A: LinkLabel(trackingNumber)
         alt already linked or 5 linked
             A-->>UC: Illegal or Invalid
