@@ -68,3 +68,7 @@ order-sourcing's `FulfillmentReleasedToNode` of a merged release (its ADR 0015) 
 ### What was already dead-lettered
 
 The inbox claim of an event id is made inside the unit of work that applies the fact (`usecases.consume`); a payload the handler refuses never reaches it. A dead-lettered fact was therefore never claimed in `processed_events`, and delivering it again once the handler can read it applies it (`TestADeadLetteredFactWasNeverClaimedAndAppliesWhenRedelivered`). The operator procedure is in the runbook (Replaying the node-topology dead letters).
+
+## Addendum 2026-11-18: the producers' examples are read from pinned specs
+
+The addendum above made every consumed type pass through the real handler from its producer's own example, and kept those examples as a copy pasted into `producer_examples_test.go`. A pasted copy drifts the day the producer changes. That file is gone: each producer's `apis/asyncapi.yaml` is pinned as a byte copy under `contracts/` (registered in `contracts/pinned.json`), the CI job `pinned-contracts` fails when a pin differs from its producer's `develop`, and the tests read the examples from the pins at test time (`pinned_examples_test.go`, the archetype tests of `contract_events_test.go` and `contract_envelope_test.go`, the scenarios of `producer_contract_test.go`). The label route of ADR 0005 is pinned the same way. Nothing of the Decision or of the first addendum changes; what is pinned, where and how a pin is refreshed is in `docs/docs/development/contract-testing.md`.
