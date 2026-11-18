@@ -13,6 +13,7 @@ import (
 )
 
 func registerSteps(sc *godog.ScenarioContext, w *world) {
+	registerAnalyticsSteps(sc, w)
 	sc.Given(`^the order "([^"]*)" group (\d+) was placed with prefix "([^"]*)" and lines "([^"]*)"$`, w.placedOrder)
 	sc.Given(`^the group is (\w+)$`, w.groupStatus)
 	sc.Given(`^an ACTIVE returns centre "([^"]*)" serves region "([^"]*)" and prefix "([^"]*)" is in that region$`, w.returnsCentre)

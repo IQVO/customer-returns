@@ -80,6 +80,37 @@ Read-only A2A agent, JSON-RPC 2.0 over HTTP (`cmd/a2a/main.go`, `cmd/a2a/telemet
 | `SERVICE_VERSION` | `dev` | no | `service.version`; also logged on the `a2a server starting` line. |
 | `ENVIRONMENT` | `local` in telemetry, `dev` on the boot log line | no | `deployment.environment.name`. |
 
+## `cmd/projector` (analytics projector, ADR 0012)
+
+Optional (chart `analytics.enabled`, default off). Writes ONLY the separate analytical database; never opens the OLTP
+database. Reads `retailnetwork.customer-returns.events` (its own topic), dead-letters poison to
+`retailnetwork.customer-returns.analytics.dlq`. Serves `/healthz` and `/readyz` on the admin port.
+
+| Variable | Default | Required? | Meaning | Chart value |
+| --- | --- | --- | --- | --- |
+| `ANALYTICS_DATABASE_URL` | none | **yes** | Direct DSN of the analytical database (read-write; runs the embedded analytical migrations). | `analytics.database.projectorUrl` or `analytics.database.existingSecret` |
+| `KAFKA_BROKERS` | none | **yes** | Comma-separated brokers. | `kafka.brokers` |
+| `ANALYTICS_CONSUMER_GROUP` | `customer-returns-analytics` | no | The projector's fixed consumer group. | `analytics.projector.consumerGroup` |
+| `ADMIN_ADDR` | `:8091` | no | `/healthz` and `/readyz` listen address. | `analytics.projector.adminAddr` |
+| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`/`warning`, `error`. | `analytics.logLevel` |
+| `OTEL_SERVICE_NAME` | `customer-returns-projector` | no | `service.name`. | `otel.serviceName` + `-projector` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. | `otel.endpoint` |
+| `SERVICE_VERSION`, `ENVIRONMENT` | `dev`, `local` | no | `service.version`, `deployment.environment.name`. | image tag, `environment` |
+
+## `cmd/reports` (read-only analytics reports, ADR 0012)
+
+Optional (chart `analytics.enabled`, default off). `GET /reports/returns-performance`, `/reports/freshness`,
+`/healthz`, `/readyz` over a read-only pool (15 s statement timeout). No Kafka, no OLTP database, no auth.
+
+| Variable | Default | Required? | Meaning | Chart value |
+| --- | --- | --- | --- | --- |
+| `ANALYTICS_READER_DATABASE_URL` | value of `ANALYTICS_DATABASE_URL` | **yes** (one of the two) | DSN of a read-only role on the analytical database. | `analytics.database.reportsUrl` (falls back to `projectorUrl`) |
+| `ANALYTICS_DATABASE_URL` | none | no | Single-role local fallback; the chart never renders it for the reports pod. | not rendered |
+| `HTTP_ADDR` | `:8092` | no | Listen address. | `analytics.reports.httpAddr` |
+| `LOG_LEVEL` | `info` | no | As in `cmd/projector`. | `analytics.logLevel` |
+| `OTEL_SERVICE_NAME` | `customer-returns-reports` | no | `service.name`. | `otel.serviceName` + `-reports` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION`, `ENVIRONMENT` | as above | no | Telemetry labels. | as above |
+
 ## Compiled-in settings (not configurable)
 
 | Setting | Value | Source |

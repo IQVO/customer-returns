@@ -60,6 +60,9 @@ Rules of the contract:
   4 MiB is `422 validation-failed`.
 - Errors are RFC 9457 `application/problem+json`; the shared problem types are `not-found` 404, `illegal-transition` 409, `concurrent-update` 409,
   `validation-failed` 422, plus one slug per model `Err...` name.
+- **Reports (ADR 0012).** `GET /reports/returns-performance` and `GET /reports/freshness` are read-only GETs served by the separate `cmd/reports` binary
+  (port 8092, behind the `/api/customer-returns/reports` Gateway route when `analytics.enabled`), from a projection of this context's own events topic. They
+  are unauthenticated like every route here, and every error is `application/problem+json`.
 - Events (AsyncAPI `apis/asyncapi.yaml`): `ReturnAuthorized`, `ReturnLabelIssued`, `ReturnCompleted`, `ReturnCancelled` on the events topic. `GET
   /return-authorizations/\{id\}/events` is deliberately NOT built: the audit trail IS the event stream.
 

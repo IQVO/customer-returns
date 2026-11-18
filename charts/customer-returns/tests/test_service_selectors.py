@@ -8,9 +8,11 @@ pod). Every Deployment carries `app.kubernetes.io/component` in selector.matchLa
 and its pod labels, and every Service selects on it, so each Service selects
 EXACTLY ONE Deployment. This test fails if that ever stops being true.
 
-This chart has three components: api (always), the optional, default-off mcp
-(ADR 0006, the read-only MCP server) and the optional, default-off a2a
-(ADR 0009, the read-only A2A agent), rendered TOGETHER in their checks below.
+This chart has these components: api (always), the optional, default-off mcp
+(ADR 0006, the read-only MCP server), the optional, default-off a2a
+(ADR 0009, the read-only A2A agent) and the optional, default-off analytics read
+side (ADR 0012: analytics-projector, a Deployment with NO Service, and
+analytics-reports), each rendered with its own checks below.
 The optional HPA, Ingress and api HTTPRoute are turned on together and
 must all point at the api workload. Run:
 python3 charts/customer-returns/tests/test_service_selectors.py
@@ -65,6 +67,12 @@ ENABLE_A2A = BASE + [
     "--set", "a2a.enabled=true",
     "--set", "a2a.route.enabled=true",
 ]
+# The analytics read side (ADR 0012): the projector and the reports pods.
+ENABLE_ANALYTICS = BASE + [
+    "--set", "analytics.enabled=true",
+    "--set", "analytics.database.projectorUrl=postgres://projector@example.invalid:5432/analytics",
+    "--set", "analytics.reports.route.enabled=true",
+]
 # The frontend component (ADR 0007): the nginx pod of the customer_returns_mfe
 # web remote, rendered together with the api it belongs to.
 ENABLE_FRONTEND = BASE + [
@@ -86,6 +94,12 @@ MCP_STRAY = {"KAFKA_BROKERS", "EVENT_PUBLISHER", "SHIPPING_LABELS_URL",
 # the api ConfigMap is deliberately not mounted on that Deployment).
 A2A_ENV = {"A2A_ADDR", "A2A_AGENT_URL", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT", "DATABASE_URL",
            "MIGRATIONS_DATABASE_URL", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT"}
+
+
+# The analytics read side never sees the OLTP database, the label route, the relay or the OLTP
+# consumers; the reports pod gets no Kafka and no DSN but the reader's.
+ANALYTICS_STRAY = (MCP_STRAY - {"KAFKA_BROKERS"}) | {"DATABASE_URL", "MIGRATIONS_DATABASE_URL"}
+REPORTS_STRAY = ANALYTICS_STRAY | {"KAFKA_BROKERS", "ANALYTICS_DATABASE_URL", "ANALYTICS_CONSUMER_GROUP"}
 
 
 def helm_template(extra_args: list[str]) -> subprocess.CompletedProcess:
@@ -277,6 +291,68 @@ def check_a2a(docs: list[dict], failures: list[str]) -> None:
                 failures.append(f"the a2a HTTPRoute must rewrite its prefix to /, got {rewrite}")
 
 
+def check_analytics(docs: list[dict], failures: list[str]) -> None:
+    """The analytics read side (ADR 0012): the projector (no Service) and the reports (Service
+    component=analytics-reports, :80), their own binaries and env, and the reports route."""
+    projector, reports = f"{RELEASE}-projector", f"{RELEASE}-reports"
+    services = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Service"}
+    deployments = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Deployment"}
+
+    if set(deployments) != {RELEASE, projector, reports}:
+        failures.append(f"with analytics.enabled: expected the api, projector and reports Deployments, got {sorted(deployments)}")
+    if set(services) != {RELEASE, reports}:
+        failures.append(f"with analytics.enabled: expected the api and reports Services (the projector has none), got {sorted(services)}")
+
+    # The real invariant, again: each Service selects exactly one Deployment.
+    for svc_name, svc in services.items():
+        sel = selector_of(svc)
+        hit = [d for d, dep in deployments.items() if matches(sel, pod_labels_of(dep))]
+        if len(hit) != 1:
+            failures.append(f"Service {svc_name} selects {len(hit)} Deployments {sorted(hit)}; expected exactly 1")
+    if reports in services and selector_of(services[reports]).get("app.kubernetes.io/component") != "analytics-reports":
+        failures.append("the reports Service selector must pin component=analytics-reports")
+
+    wants = (
+        (projector, "analytics-projector", "/app/projector", ANALYTICS_STRAY,
+         ("ANALYTICS_DATABASE_URL", "KAFKA_BROKERS", "ANALYTICS_CONSUMER_GROUP", "ADMIN_ADDR", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT")),
+        (reports, "analytics-reports", "/app/reports", REPORTS_STRAY,
+         ("ANALYTICS_READER_DATABASE_URL", "HTTP_ADDR", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT")),
+    )
+    for name, component, command, stray_set, needs in wants:
+        dep = deployments.get(name)
+        if dep is None:
+            failures.append(f"the {component} Deployment was not rendered with analytics.enabled=true")
+            continue
+        match_labels = dep["spec"]["selector"].get("matchLabels", {})
+        if match_labels.get("app.kubernetes.io/component") != component:
+            failures.append(f"the {component} Deployment selector.matchLabels must pin component={component}")
+        if not matches(match_labels, pod_labels_of(dep)):
+            failures.append(f"the {component} Deployment pod labels do not satisfy its own selector")
+        containers = dep["spec"]["template"]["spec"]["containers"]
+        if (containers[0].get("command", []) if containers else []) != [command]:
+            failures.append(f"the {component} Deployment must run {command}")
+        env = {e["name"] for e in (containers[0].get("env", []) if containers else []) if "name" in e}
+        if stray_set & env:
+            failures.append(f"the {component} Deployment must not get {sorted(stray_set & env)}")
+        for need in needs:
+            if need not in env:
+                failures.append(f"the {component} Deployment does not render {need}")
+
+    route = next((d for d in docs if d.get("kind") == "HTTPRoute" and d["metadata"]["name"] == reports), None)
+    if route is None:
+        failures.append("the reports HTTPRoute was not rendered with analytics.reports.route.enabled=true")
+    else:
+        if route["metadata"].get("annotations", {}).get("konghq.com/regex-priority") != "10":
+            failures.append("the reports HTTPRoute must carry konghq.com/regex-priority: \"10\"")
+        for rule in route["spec"]["rules"]:
+            for ref in rule["backendRefs"]:
+                if ref["name"] != reports:
+                    failures.append("the reports HTTPRoute backend is not the reports Service")
+            rewrite = [f["urlRewrite"]["path"].get("replacePrefixMatch") for f in rule.get("filters", []) if f.get("type") == "URLRewrite"]
+            if rewrite != ["/reports"]:
+                failures.append(f"the reports HTTPRoute must rewrite its prefix to /reports, got {rewrite}")
+
+
 def check_refusals(failures: list[str]) -> None:
     cases: list[tuple[str, list[str], str]] = [
         ("without a database source", runtime("database"), "requires database.url or database.existingSecret"),
@@ -303,6 +379,7 @@ def main() -> int:
     check_components(render(ENABLE_EVERYTHING), failures)
     check_mcp(render(ENABLE_MCP), failures)
     check_a2a(render(ENABLE_A2A), failures)
+    check_analytics(render(ENABLE_ANALYTICS), failures)
 
     # Default values must not deploy an HPA, a route, an Ingress, the mcp or
     # the frontend.
@@ -314,6 +391,8 @@ def main() -> int:
         failures.append("the mcp component must not render with default values (mcp.enabled=false)")
     if any(d.get("metadata", {}).get("name", "").endswith("-a2a") for d in defaults):
         failures.append("the a2a component must not render with default values (a2a.enabled=false)")
+    if any(d.get("metadata", {}).get("name", "").endswith(("-projector", "-reports")) for d in defaults):
+        failures.append("the analytics components must not render with default values (analytics.enabled=false)")
 
     check_refusals(failures)
 
@@ -325,8 +404,10 @@ def main() -> int:
     print("PASS: the api Service selects exactly one Deployment (component=api) and so does the mcp Service "
           "(component=mcp, ADR 0006, with exactly the env cmd/mcp reads), the a2a Service (component=a2a, ADR 0009, "
           "with exactly the env cmd/a2a reads and no Kafka env) and the frontend Service "
-          "(component=frontend, ADR 0007, ClusterIP, no env, never routed by this chart); the HPA, Ingress, "
-          "HTTPRoute and the mcp, a2a and frontend components are off by default and target their own component; "
+          "(component=frontend, ADR 0007, ClusterIP, no env, never routed by this chart) and the analytics-reports Service "
+          "(component=analytics-reports, ADR 0012; analytics-projector has no Service, both run their own binary with their own env "
+          "and the reports route outranks the API route); the HPA, Ingress, "
+          "HTTPRoute and the mcp, a2a, frontend and analytics components are off by default and target their own component; "
           "the chart refuses to render without a "
           "database source, brokers, any consumer group or neighbour URL, with a log/unknown publisher or a "
           "*_MODE in extraEnv, or with a grace period under 40s")

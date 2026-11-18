@@ -126,6 +126,17 @@ Source: `cmd/api/{main,wire_adapters,wire_background}.go` (wiring and workers), 
 `internal/architecture/architecture_test.go`. The in-memory adapters are not in the diagram because no binary wires them.
 `cmd/mcp` and `cmd/a2a` run the same embedded migrations at boot and read through the same repositories.
 
+## Analytics read side (ADR 0012)
+
+Optional and off by default: `cmd/projector` consumes this context's own `retailnetwork.customer-returns.events` into a
+second, separate Postgres database (`analytics_processed_events`, `return_authorizations`, `return_receipts`; see the
+[entity relationship](/docs/ddd/entity-relationship) page) and `cmd/reports` serves `GET /reports/returns-performance`
+and `/reports/freshness` read-only. The pure KPI rules live in `internal/domain/returnsperformance`, which imports no
+other internal package; the store is `internal/adapters/outbound/analyticsstore` (writer, reader and an in-memory twin held
+to one contract suite) and the routes `internal/adapters/inbound/reportshttp`. Three architecture tests keep it so
+(`internal/architecture/analytics_fitness_test.go`): the read model is self-contained, the store depends only on it and the
+analytical schema, and the OLTP side never imports either.
+
 ## Data stores
 
 One Postgres database owned by this context, created by the embedded migrations

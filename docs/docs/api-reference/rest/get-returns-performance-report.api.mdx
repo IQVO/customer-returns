@@ -1,0 +1,70 @@
+---
+id: get-returns-performance-report
+title: "Returns performance per UTC day, reason Pareto and freshness"
+description: "Per UTC day of the business instant (`authorizedAt`, `receivedAt`): the returns authorized (a return is born authorized, so this is both 'opened' and 'approved'), the returns received (`ReturnCompleted`) and, over the receipts whose authorization is also projected, the p50 and p95 of `receivedAt - authorizedAt` in seconds (`null` on a day without a sample; a negative duration counts as 0). `reasonPareto` ranks the range's authorizations by reason code, at most 5 entries; `share` is over ALL authorizations of the range. `freshness` is the projection's lag. Days without activity are omitted, an empty range answers empty arrays. The return RATE and the refund figures are deliberately absent: their facts are not in this context's own events (ADR 0012)."
+sidebar_label: "Returns performance per UTC day, reason Pareto and freshness"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/customer-returns-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Returns performance per UTC day, reason Pareto and freshness"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/reports/returns-performance"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Per UTC day of the business instant (`authorizedAt`, `receivedAt`): the returns authorized (a return is born authorized, so this is both "opened" and "approved"), the returns received (`ReturnCompleted`) and, over the receipts whose authorization is also projected, the p50 and p95 of `receivedAt - authorizedAt` in seconds (`null` on a day without a sample; a negative duration counts as 0). `reasonPareto` ranks the range's authorizations by reason code, at most 5 entries; `share` is over ALL authorizations of the range. `freshness` is the projection's lag. Days without activity are omitted, an empty range answers empty arrays. The return RATE and the refund figures are deliberately absent: their facts are not in this context's own events (ADR 0012).
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./get-returns-performance-report.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./get-returns-performance-report.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./get-returns-performance-report.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
