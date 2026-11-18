@@ -19,8 +19,9 @@ import (
 // sourcing consumers claim under the full CloudEvents type; the ordering
 // consumer under the event name.
 const (
-	claimOrderPlaced = "CustomerOrderPlaced"
-	claimReleased    = "com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode"
+	claimNodeRegistered = "com.retailnetwork.logistics.node-topology.node.NodeRegistered"
+	claimOrderPlaced    = "CustomerOrderPlaced"
+	claimReleased       = "com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode"
 )
 
 func TestRebuildOrderGroupPrefix(t *testing.T) {
@@ -92,5 +93,46 @@ func TestRebuildMergedReleaseOrigins(t *testing.T) {
 		if err != nil || origin.NodeID != "node-fc-ws-sor-01" {
 			t.Fatalf("origin of %s after the rebuild = %+v %v", orderID, origin, err)
 		}
+	}
+}
+
+// A node registered before the view kept the label prefix (migration 0005)
+// has none, and NodeRegistered is published once per node: the row is
+// repaired only by applying that registration again. The rebuild must not
+// undo the lifecycle the status facts moved since.
+func TestRebuildNodeLabelPrefix(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	const id = "node-0f3a91" // the node of the producer's examples
+	feedExample(t, h.topo, exampleNodeTopologyNodeRegistered)
+	feedExample(t, h.topo, exampleNodeTopologyNodeActivated)
+	at := exampleTime(t, "2026-10-22T14:00:00Z")
+	// The row as a release before migration 0005 left it: no label prefix.
+	before := h.node(t, id)
+	before.LabelPostalPrefix = ""
+	if err := h.store.NetworkSaver().RegisterNode(ctx, before); err != nil {
+		t.Fatal(err)
+	}
+	noPrefix := network.Node{NodeID: id, Type: network.TypeFulfillmentCenter, RegionID: "region-se", Lifecycle: network.NodeActive, LifecycleAt: at}
+	if got := h.node(t, id); got != noPrefix {
+		t.Fatalf("setup: the node = %+v, want %+v", got, noPrefix)
+	}
+
+	// Redelivered while still claimed (a new consumer group alone): swallowed.
+	feedExample(t, h.topo, exampleNodeTopologyNodeRegistered)
+	if got := h.node(t, id); got != noPrefix {
+		t.Fatalf("a claimed registration was applied again: %+v", got)
+	}
+
+	// The operator's DELETE of the NodeRegistered claims, then the topic.
+	if n := h.store.ForgetClaims(claimNodeRegistered); n != 1 {
+		t.Fatalf("forgot %d claims, want the 1 registration (the NodeActivated claim stays)", n)
+	}
+	feedExample(t, h.topo, exampleNodeTopologyNodeRegistered)
+	feedExample(t, h.topo, exampleNodeTopologyNodeActivated) // still claimed: skipped
+	want := noPrefix
+	want.LabelPostalPrefix = "07750"
+	if got := h.node(t, id); got != want {
+		t.Fatalf("after the rebuild the node = %+v, want %+v (prefix filled, still ACTIVE)", got, want)
 	}
 }
