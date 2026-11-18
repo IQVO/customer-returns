@@ -938,8 +938,8 @@ components:
           data:
             type: object
             description: The fields of node-topology's NodeRegistered this context relies on; the producer sends more (subtype, operator, vendor fields,
-              timezone, countryCode), all ignored. `postalCode` is relied on and not required here: node-topology requires it and always sends it, and
-              a registration without it is still applied (tolerant reader).
+              timezone, countryCode), all ignored. `postalCode` is relied on and not required here, because node-topology requires it and always sends
+              it; a registration without it is still applied (tolerant reader).
             required:
             - nodeId
             - nodeType
