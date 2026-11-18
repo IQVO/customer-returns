@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -78,24 +77,6 @@ func NewNetworkViewRepo(pool *pgxpool.Pool) *NetworkViewRepo {
 }
 
 var _ ports.NetworkViewRepository = (*NetworkViewRepo)(nil)
-
-// SaveNode upserts the node row.
-func (r *NetworkViewRepo) SaveNode(ctx context.Context, n network.Node) error {
-	tag, err := queryFor(ctx, r.pool).Exec(ctx, `
-INSERT INTO returns_network_nodes (node_id, node_type, region_id, lifecycle, updated_at)
-VALUES ($1,$2,$3,$4,$5)
-ON CONFLICT (node_id) DO UPDATE
-SET node_type = EXCLUDED.node_type, region_id = EXCLUDED.region_id,
-    lifecycle = EXCLUDED.lifecycle, updated_at = EXCLUDED.updated_at`,
-		n.NodeID, string(n.Type), n.RegionID, string(n.Lifecycle), time.Now().UTC())
-	if err != nil {
-		return fmt.Errorf("save node: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("save node: %d rows", tag.RowsAffected())
-	}
-	return nil
-}
 
 // SavePrefix upserts the prefix row; a stale assignmentVersion is a no-op.
 func (r *NetworkViewRepo) SavePrefix(ctx context.Context, p network.PrefixAssignment) error {

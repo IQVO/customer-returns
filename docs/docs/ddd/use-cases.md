@@ -45,7 +45,7 @@ Source: `internal/application/usecases/{authorize,labels,outcome,queries,consume
 | `ListReturnAuthorizations` | `GET /return-authorizations?orderId=` (keyset-paged); MCP `list_return_authorizations` | none |
 | `OnOutcomeSubmitted` | `VendorReturnOutcomeSubmitted` on Kafka | `ReturnCompleted` (first fitting outcome) |
 | `OnOrderPlaced`, `OnNoticeDecided` | customer-ordering events | none (updates `order_group_views`) |
-| `OnNodeFact`, `OnPrefixFact` | node-topology events | none (updates `returns_network_nodes`, `service_area_prefixes`) |
+| `OnNodeRegistered`, `OnNodeStatus`, `OnPrefixFact` | node-topology events | none (updates `returns_network_nodes`, `service_area_prefixes`) |
 | `OnOriginFact` | order-sourcing events | none (updates `group_origins`) |
 
 ## Return commands
@@ -94,13 +94,19 @@ Source: `internal/application/usecases/{authorize,labels,outcome,queries,consume
 
 ### The read-model consumers
 
-`OnOrderPlaced` and `OnNoticeDecided` fold customer-ordering's facts into `order_group_views` (the placed lines, the
-destination prefix and witness; a terminal notice sets the status — a fact's status wins over the family). `OnNodeFact`
-and `OnPrefixFact` fold node-topology's facts into `returns_network_nodes` (only ACTIVE `RETURNS_CENTER`s are `Decide`
-candidates) and `service_area_prefixes` (the highest `assignmentVersion` wins; a stale write is a no-op). `OnOriginFact`
-folds order-sourcing's facts into `group_origins`: the lock names the fulfilling node, the release carries the per-item
-`ownerRef`s. They tolerate duplicates and out-of-order delivery — a notice before its placed event creates the row with
-the fact's status — and each is claimed in `processed_events` by the CloudEvents id.
+`OnOrderPlaced` and `OnNoticeDecided` fold customer-ordering's facts into `order_group_views` (the placed lines and
+witness of each group, and the ORDER's destination prefix, which customer-ordering publishes once per order; a terminal
+notice sets the status — a fact's status wins over the family). `OnNodeRegistered`, `OnNodeStatus` and `OnPrefixFact` fold
+node-topology's facts into `returns_network_nodes` and `service_area_prefixes` (the highest `assignmentVersion` wins; a
+stale write is a no-op). `NodeRegistered` is the one node fact that carries the type and the region; `NodeActivated`,
+`NodeSuspended` and `NodeRetired` carry the node id and an instant, so they move the lifecycle only (only ACTIVE
+`RETURNS_CENTER`s are `Decide` candidates). A registration applied again never demotes the lifecycle, a status fact older
+than the one applied is a no-op, and a status fact for a node never seen keeps a lifecycle-only row the registration
+completes. `OnOriginFact` folds order-sourcing's facts into `group_origins`: the lock names the fulfilling node, the
+release carries the per-item `ownerRef`s, and a merged release writes one origin per member group. They tolerate
+duplicates and out-of-order delivery — a notice before its placed event creates the row with the fact's status — and each
+is claimed in `processed_events` by the CloudEvents id
+([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models), addendum 2026-11-17).
 
 ## Queries
 

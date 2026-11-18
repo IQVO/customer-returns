@@ -83,10 +83,13 @@ func (h *harness) seedReturn(t *testing.T, orderID string, disposition returnaut
 	}); err != nil {
 		t.Fatalf("seed group: %v", err)
 	}
-	if err := h.store.NetworkSaver().SaveNode(ctx, network.Node{
-		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se", Lifecycle: network.NodeActive,
+	if err := h.store.NetworkSaver().RegisterNode(ctx, network.Node{
+		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se",
 	}); err != nil {
 		t.Fatalf("seed node: %v", err)
+	}
+	if err := h.store.NetworkSaver().SetNodeLifecycle(ctx, "node-rc-1", network.NodeActive, now); err != nil {
+		t.Fatalf("activate node: %v", err)
 	}
 	if err := h.store.NetworkSaver().SavePrefix(ctx, network.PrefixAssignment{
 		PostalPrefix: "013", RegionID: "region-se", AssignmentVersion: 1,

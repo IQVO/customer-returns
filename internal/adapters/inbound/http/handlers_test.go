@@ -147,7 +147,8 @@ func (e *api) seedNetwork() {
 	e.t.Helper()
 	ctx := context.Background()
 	s := e.store.NetworkSaver()
-	_ = s.SaveNode(ctx, network.Node{NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se", Lifecycle: network.NodeActive})
+	_ = s.RegisterNode(ctx, network.Node{NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se"})
+	_ = s.SetNodeLifecycle(ctx, "node-rc-1", network.NodeActive, time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC))
 	_ = s.SavePrefix(ctx, network.PrefixAssignment{PostalPrefix: "013", RegionID: "region-se", AssignmentVersion: 2})
 }
 

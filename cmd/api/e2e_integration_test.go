@@ -483,6 +483,39 @@ func vendorEvent(t *testing.T, id, subject, data string) kafkago.Message {
 		"com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", subject, data)}
 }
 
+// nodeRegisteredData is node-topology's NodeRegistered payload
+// (registeredPayload in its outbound encoder): every field of the contract,
+// the three nullable ones null as for a node without a vendor code. subtype
+// is raw JSON (`null` or a quoted FULFILLMENT_CENTER subtype).
+func nodeRegisteredData(nodeID, nodeType, subtype, postal string) string {
+	return fmt.Sprintf(`{"nodeId":%q,"nodeType":%q,"subtype":%s,"operator":"VENDOR","vendorId":"vendor-77","vendorNodeCode":%q,`+
+		`"servingStationNodeId":null,"regionId":"region-east","timezone":"America/Sao_Paulo","postalCode":%q,"countryCode":"BR"}`,
+		nodeID, nodeType, subtype, "code-"+nodeID, postal)
+}
+
+// placedGroupData is one group of customer-ordering's CustomerOrderPlaced
+// (placedGroupData in its outbound encoder): no postal prefix on a group.
+func placedGroupData(no int, lines string) string {
+	return fmt.Sprintf(`{"groupNo":%d,"promiseId":"p-%d","tier":"STANDARD","witnessNodeId":"node-fc-1","shipBy":"2026-11-01T22:00:00Z",`+
+		`"deliverByEarliest":"2026-11-02T13:00:00Z","deliverByLatest":"2026-11-03T22:00:00Z","lines":[%s]}`, no, no, lines)
+}
+
+// orderPlacedData is customer-ordering's CustomerOrderPlaced payload
+// (placedData): the destination postal prefix is the order's.
+func orderPlacedData(orderID, prefix, placedAt string, groups ...string) string {
+	return fmt.Sprintf(`{"orderId":%q,"shopperId":"shopper-1","destinationPostalPrefix":%q,"placedAt":%q,"groups":[%s]}`,
+		orderID, prefix, placedAt, strings.Join(groups, ","))
+}
+
+// noticeData is customer-ordering's ShopperNoticeDecided payload
+// (shopperNoticeDecidedData) of a terminal family: the fact carries the
+// group status.
+func noticeData(orderID string, groupNo int, family, status string) string {
+	return fmt.Sprintf(`{"orderId":%q,"groupNo":%d,"family":%q,"notifier":"NOBODY","policyVersion":0,`+
+		`"noticeKey":"e17a743b013e6726bd9b0dcb238ce8a8909bc9e18237878d103b54b7edba7e76","decidedAt":"2026-11-02T12:00:00Z","fact":{"status":%q}}`,
+		orderID, groupNo, family, status)
+}
+
 // stubShippingLabels plays the shipping context's POST /return-labels route:
 // package 3 is the outage case (503 ship-to-unavailable), everything else
 // answers what the route answers on success, 201 Created with a ReturnLabel
@@ -544,49 +577,55 @@ type world struct {
 }
 
 // phaseSetup feeds the two read models through the input topics: an ACTIVE
-// returns centre and a fulfilment centre in region-east, the prefix 22 in
-// region-east, prefix 31 in region-west (no centre), five order groups of
+// returns centre and a fulfilment centre in region-east, the prefix 220 in
+// region-east, prefix 310 in region-west (no centre), five order groups of
 // ord-1 (four SHIPPED, one still PROMISED) and ord-2 in region-west, plus the
 // sourcing facts naming node-fc-1 the origin of ord-1 group 1 with sel-42
-// owning sku-100.
+// owning sku-100. Every payload has the shape its producer publishes (the
+// builders below name the producer's wire struct): the status facts of a node
+// carry the node id and an instant only, the destination postal prefix is on
+// the order and never on a group.
 func phaseSetup(t *testing.T, w *world) {
 	t.Helper()
 	produce(t, w.brokers, topicTopology,
-		topologyEvent(t, "evt-nt1", "node", "NodeRegistered", "node-rc-1", `{"nodeId":"node-rc-1","nodeType":"RETURNS_CENTER","regionId":"region-east"}`),
-		topologyEvent(t, "evt-nt2", "node", "NodeActivated", "node-rc-1", `{"nodeId":"node-rc-1","nodeType":"RETURNS_CENTER","regionId":"region-east"}`),
-		topologyEvent(t, "evt-nt3", "node", "NodeRegistered", "node-fc-1", `{"nodeId":"node-fc-1","nodeType":"FULFILLMENT_CENTER","regionId":"region-east"}`),
-		topologyEvent(t, "evt-nt4", "node", "NodeActivated", "node-fc-1", `{"nodeId":"node-fc-1","nodeType":"FULFILLMENT_CENTER","regionId":"region-east"}`),
-		topologyEvent(t, "evt-nt5", "servicearea", "ServiceAreaAssigned", "22", `{"postalPrefix":"22","regionId":"region-east","assignmentVersion":1}`),
-		topologyEvent(t, "evt-nt6", "servicearea", "ServiceAreaAssigned", "31", `{"postalPrefix":"31","regionId":"region-west","assignmentVersion":1}`))
-	group := func(no int) string {
-		return fmt.Sprintf(`{"groupNo":%d,"destinationPostalPrefix":"22","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-100","Quantity":2},{"LineNo":2,"CatalogItemID":"sku-200","Quantity":1}]}`, no)
-	}
-	placed := fmt.Sprintf(`{"orderId":"ord-1","placedAt":"2026-11-01T10:00:00Z","groups":[%s,%s,%s,%s,%s]}`,
-		group(1), group(2), group(3), group(4), group(5))
+		topologyEvent(t, "evt-nt1", "node", "NodeRegistered", "node-rc-1", nodeRegisteredData("node-rc-1", "RETURNS_CENTER", "null", "07750-000")),
+		topologyEvent(t, "evt-nt2", "node", "NodeActivated", "node-rc-1", `{"nodeId":"node-rc-1","activatedAt":"2026-11-01T09:00:00Z"}`),
+		topologyEvent(t, "evt-nt3", "node", "NodeRegistered", "node-fc-1", nodeRegisteredData("node-fc-1", "FULFILLMENT_CENTER", `"SORTABLE"`, "13210-000")),
+		topologyEvent(t, "evt-nt4", "node", "NodeActivated", "node-fc-1", `{"nodeId":"node-fc-1","activatedAt":"2026-11-01T09:00:00Z"}`),
+		topologyEvent(t, "evt-nt5", "servicearea", "ServiceAreaAssigned", "220", `{"postalPrefix":"220","deliveryStationNodeId":"node-ds-1","regionId":"region-east","assignmentVersion":1}`),
+		topologyEvent(t, "evt-nt6", "servicearea", "ServiceAreaAssigned", "310", `{"postalPrefix":"310","deliveryStationNodeId":"node-ds-2","regionId":"region-west","assignmentVersion":1}`))
+	const twoLines = `{"lineNo":1,"catalogItemId":"sku-100","quantity":2},{"lineNo":2,"catalogItemId":"sku-200","quantity":1}`
 	produce(t, w.brokers, topicOrdering,
-		orderingEvent(t, "evt-co1", "CustomerOrderPlaced", "customerorder", "ord-1", placed),
-		orderingEvent(t, "evt-co2", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co3", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":2,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co4", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":3,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co5", "ShopperNoticeDecided", "order", "ord-1", `{"orderId":"ord-1","groupNo":5,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co6", "CustomerOrderPlaced", "customerorder", "ord-2", `{"orderId":"ord-2","placedAt":"2026-11-01T11:00:00Z","groups":[{"groupNo":1,"destinationPostalPrefix":"31","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-300","Quantity":1}]}]}`),
-		orderingEvent(t, "evt-co7", "ShopperNoticeDecided", "order", "ord-2", `{"orderId":"ord-2","groupNo":1,"family":"GROUP_DELIVERED","fact":{"status":"DELIVERED"}}`))
+		orderingEvent(t, "evt-co1", "CustomerOrderPlaced", "customerorder", "ord-1", orderPlacedData("ord-1", "220", "2026-11-01T10:00:00Z",
+			placedGroupData(1, twoLines), placedGroupData(2, twoLines), placedGroupData(3, twoLines), placedGroupData(4, twoLines), placedGroupData(5, twoLines))),
+		orderingEvent(t, "evt-co2", "ShopperNoticeDecided", "order", "ord-1", noticeData("ord-1", 1, "GROUP_SHIPPED", "SHIPPED")),
+		orderingEvent(t, "evt-co3", "ShopperNoticeDecided", "order", "ord-1", noticeData("ord-1", 2, "GROUP_SHIPPED", "SHIPPED")),
+		orderingEvent(t, "evt-co4", "ShopperNoticeDecided", "order", "ord-1", noticeData("ord-1", 3, "GROUP_SHIPPED", "SHIPPED")),
+		orderingEvent(t, "evt-co5", "ShopperNoticeDecided", "order", "ord-1", noticeData("ord-1", 5, "GROUP_SHIPPED", "SHIPPED")),
+		orderingEvent(t, "evt-co6", "CustomerOrderPlaced", "customerorder", "ord-2", orderPlacedData("ord-2", "310", "2026-11-01T11:00:00Z",
+			placedGroupData(1, `{"lineNo":1,"catalogItemId":"sku-300","quantity":1}`))),
+		orderingEvent(t, "evt-co7", "ShopperNoticeDecided", "order", "ord-2", noticeData("ord-2", 1, "GROUP_DELIVERED", "DELIVERED")))
 	// ord-idem's placed event and its notice: the notice FIRST on purpose --
 	// the view must stay SHIPPED when the placed event lands after the fact.
 	produce(t, w.brokers, topicOrdering,
-		orderingEvent(t, "evt-co8", "ShopperNoticeDecided", "order", "ord-idem", `{"orderId":"ord-idem","groupNo":1,"family":"GROUP_SHIPPED","fact":{"status":"SHIPPED"}}`),
-		orderingEvent(t, "evt-co9", "CustomerOrderPlaced", "customerorder", "ord-idem",
-			`{"orderId":"ord-idem","placedAt":"2026-11-01T12:00:00Z","groups":[{"groupNo":1,"destinationPostalPrefix":"22","witnessNodeId":"node-fc-1","lines":[{"LineNo":1,"CatalogItemID":"sku-100","Quantity":1}]}]}`))
+		orderingEvent(t, "evt-co8", "ShopperNoticeDecided", "order", "ord-idem", noticeData("ord-idem", 1, "GROUP_SHIPPED", "SHIPPED")),
+		orderingEvent(t, "evt-co9", "CustomerOrderPlaced", "customerorder", "ord-idem", orderPlacedData("ord-idem", "220", "2026-11-01T12:00:00Z",
+			placedGroupData(1, `{"lineNo":1,"catalogItemId":"sku-100","quantity":1}`))))
 	produce(t, w.brokers, topicSourcing,
-		sourcingEvent(t, "evt-os1", "FulfillmentReleasedToNode", "ord-1",
-			`{"orderId":"ord-1","groupNo":1,"nodeId":"node-fc-1","lines":[{"catalogItemId":"sku-100","ownerRef":"sel-42"},{"catalogItemId":"sku-200","ownerRef":"sel-42"}]}`),
-		sourcingEvent(t, "evt-os2", "FulfillmentLocked", "ord-1", `{"orderId":"ord-1","groupNo":1,"nodeId":"node-fc-1"}`))
+		sourcingEvent(t, "evt-os1", "FulfillmentReleasedToNode", "asg-1",
+			`{"assignmentId":"asg-1","releaseNo":1,"orderId":"ord-1","groupNo":1,"nodeId":"node-fc-1","pickupDepartureId":"dep-pk-1",`+
+				`"requiredShipBy":"2026-11-01T21:00:00Z","promisedDeliverByLatest":"2026-11-03T23:00:00Z","tier":"STANDARD","lines":[`+
+				`{"catalogItemId":"sku-100","listingId":"lst-sku-100-node-fc-1-sel-42","ownerRef":"sel-42","quantity":2},`+
+				`{"catalogItemId":"sku-200","listingId":"lst-sku-200-node-fc-1-sel-42","ownerRef":"sel-42","quantity":1}]}`),
+		sourcingEvent(t, "evt-os2", "FulfillmentLocked", "asg-1",
+			`{"assignmentId":"asg-1","orderId":"ord-1","groupNo":1,"promiseId":"p-ord-1-1","nodeId":"node-fc-1","pickupDepartureId":"dep-pk-1",`+
+				`"lockedAt":"2026-11-01T10:05:00Z","lockReason":"PURCHASE_ORDER_ACCEPTED"}`))
 	waitFor(t, 60*time.Second, "the order group and returns network views to be fed", func() bool {
 		g1 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-1' AND group_no=1 AND status='SHIPPED'`) == 1
 		g2 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-2' AND group_no=1 AND status='DELIVERED'`) == 1
 		g3 := w.db.count(`SELECT count(*) FROM order_group_views WHERE order_id='ord-idem' AND group_no=1 AND status='SHIPPED'`) == 1
 		n1 := w.db.count(`SELECT count(*) FROM returns_network_nodes WHERE node_id='node-rc-1' AND lifecycle='ACTIVE'`) == 1
-		p1 := w.db.count(`SELECT count(*) FROM service_area_prefixes WHERE postal_prefix='22' AND region_id='region-east'`) == 1
+		p1 := w.db.count(`SELECT count(*) FROM service_area_prefixes WHERE postal_prefix='220' AND region_id='region-east'`) == 1
 		o1 := w.db.count(`SELECT count(*) FROM group_origins WHERE order_id='ord-1' AND group_no=1 AND node_id='node-fc-1'`) == 1
 		wdiagnostics = fmt.Sprintf("g1=%v g2=%v g3=%v node=%v prefix=%v origin=%v processed=%d ids=%s",
 			g1, g2, g3, n1, p1, o1, w.db.count(`SELECT count(*) FROM processed_events`),
@@ -739,7 +778,9 @@ func phasePublished(t *testing.T, w *world) {
 // the inbox swallows the duplicate, and reads the final state.
 func phaseOutcome(t *testing.T, s *service, w *world) {
 	t.Helper()
-	data := fmt.Sprintf(`{"authorizationId":%q,"nodeId":"node-rc-1","receivedAt":"2026-11-20T09:30:00Z","lines":[`+
+	// vendor-connectivity's VendorReturnOutcomeSubmitted payload
+	// (outcomeSubmittedData in its outbound encoder).
+	data := fmt.Sprintf(`{"transactionId":"tx-e2e-1","vendorId":"vendor-77","authorizationId":%q,"nodeId":"node-rc-1","receivedAt":"2026-11-20T09:30:00Z","lines":[`+
 		`{"catalogItemId":"sku-100","qtyRestockable":2,"qtyUnsellable":0},`+
 		`{"catalogItemId":"sku-200","qtyRestockable":0,"qtyUnsellable":1},`+
 		`{"catalogItemId":"sku-999","qtyRestockable":1,"qtyUnsellable":0}]}`, w.mainID)

@@ -72,7 +72,7 @@ One method of `Service` per command and query; commands run in ONE `ports.UnitOf
 - Outcomes (`outcome.go`): `OnOutcomeSubmitted` - first fit completes, unexpected lines
   stay facts, unknown/closed is recorded and acknowledged.
 - Consumer policies (`consumers.go`): `OnOrderPlaced`, `OnNoticeDecided` (order-tolerant),
-  `OnNodeFact`, `OnPrefixFact`, `OnOriginFact`.
+  `OnNodeRegistered` (type, region), `OnNodeStatus` (lifecycle only), `OnPrefixFact`, `OnOriginFact`.
 - Ports (`internal/application/ports/ports.go`) are interfaces only; the memory test
   doubles in `internal/adapters/outbound/memory` back the unit tests and the godog
   scenarios, the Postgres adapters are proven by

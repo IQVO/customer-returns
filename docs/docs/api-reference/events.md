@@ -53,14 +53,14 @@ CloudEvents `id` (`processed_events`).
 
 | Producer | Topic | Full `type` | Effect |
 | --- | --- | --- | --- |
-| customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced` | Writes the group's lines, prefix and witness, `PROMISED`; never demotes a status a notice already set. |
+| customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced` | Writes each group's lines and witness and the ORDER's `destinationPostalPrefix` (published once per order), `PROMISED`; never demotes a status a notice already set. |
 | customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided` | Sets the status (a terminal family fact wins); creates the row for an unknown group. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | Creates the node in `returns_network_nodes` (PENDING). |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeActivated` | Lifecycle `ACTIVE` — the `Decide` candidate gate. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeSuspended` | Lifecycle `SUSPENDED`. |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRetired` | Lifecycle `RETIRED` (terminal). |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | Writes the node's type and region in `returns_network_nodes`; a new node starts PENDING, a node already held keeps its lifecycle. |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeActivated` | Lifecycle `ACTIVE` — the `Decide` candidate gate. Carries the node id and an instant only: nothing but the lifecycle moves. |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeSuspended` | Lifecycle `SUSPENDED` (node id and instant only). |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRetired` | Lifecycle `RETIRED`, terminal (node id and instant only). |
 | node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned` | Upserts the prefix's region; the highest `assignmentVersion` wins. |
-| order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode` | Merges the per-item `ownerRef`s into `group_origins`. |
+| order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode` | Merges the per-item `ownerRef`s into `group_origins`; a merged release writes one origin per group in `members`. |
 | order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked` | Names the fulfilling node (the ORIGIN_NODE fallback). |
 | vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted` | Records the graded outcome; the first that fits completes the authorization. |
 
