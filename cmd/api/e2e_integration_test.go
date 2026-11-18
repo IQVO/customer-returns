@@ -519,7 +519,11 @@ func noticeData(orderID string, groupNo int, family, status string) string {
 // stubShippingLabels plays the shipping context's POST /return-labels route:
 // package 3 is the outage case (503 ship-to-unavailable), everything else
 // answers what the route answers on success, 201 Created with a ReturnLabel
-// (every required property of that schema).
+// (every required property of that schema). The route is asked for a label to
+// the RETURN destination: the stub refuses (400, which the client maps to
+// label-unavailable and fails the phase) any destination prefix but the
+// returns centre's, 07750 of node-rc-1's 07750-000. The order's own prefix,
+// the shopper's, is 220.
 func stubShippingLabels(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -531,8 +535,14 @@ func stubShippingLabels(t *testing.T) *httptest.Server {
 			ReturnAuthorizationID string `json:"returnAuthorizationId"`
 			OrderID               string `json:"orderId"`
 			PackageNo             int    `json:"packageNo"`
+			DestinationPrefix     string `json:"destinationPostalPrefix"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ReturnAuthorizationID == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if body.DestinationPrefix != "07750" {
+			t.Errorf("label requested for destination prefix %q, want the returns centre's 07750", body.DestinationPrefix)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}

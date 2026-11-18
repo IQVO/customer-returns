@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -147,7 +148,7 @@ func (e *api) seedNetwork() {
 	e.t.Helper()
 	ctx := context.Background()
 	s := e.store.NetworkSaver()
-	_ = s.RegisterNode(ctx, network.Node{NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se"})
+	_ = s.RegisterNode(ctx, network.Node{NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750"})
 	_ = s.SetNodeLifecycle(ctx, "node-rc-1", network.NodeActive, time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC))
 	_ = s.SavePrefix(ctx, network.PrefixAssignment{PostalPrefix: "013", RegionID: "region-se", AssignmentVersion: 2})
 }
@@ -325,7 +326,12 @@ func TestIssueLabelLinksTrackingNumber(t *testing.T) {
 	e := newAPI(t)
 	e.seedShippedGroup("ord-1", 1, network.GroupDelivered)
 	e.seedNetwork()
+	// The route is asked for a label to the returns centre (07750), not to
+	// the order group's own prefix (013, the shopper's).
 	e.store.LabelResponse(func(in requests.IssueReturnLabel) (requests.ReturnLabel, error) {
+		if in.DestinationPostalPrefix != "07750" {
+			return requests.ReturnLabel{}, fmt.Errorf("destination prefix = %q, want the returns centre's 07750", in.DestinationPostalPrefix)
+		}
 		return requests.ReturnLabel{TrackingNumber: "trk-rev-1", Carrier: "RN-GROUND"}, nil
 	})
 	e.do(http.MethodPost, "/return-authorizations", `{"orderId":"ord-1","groupNo":1,"lines":[{"lineNo":1,"unitPriceCents":9900}],"reason":"WRONG_ITEM"}`)

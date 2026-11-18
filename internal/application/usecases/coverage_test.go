@@ -77,7 +77,7 @@ func (f *fixture) seedTopology(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	if err := f.svc.OnNodeRegistered(ctx, "evt-nf-1", "NodeRegistered", requests.NodeRegistered{
-		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1",
+		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1", PostalCode: returnsCentreCode,
 	}); err != nil {
 		t.Fatalf("OnNodeRegistered: %v", err)
 	}

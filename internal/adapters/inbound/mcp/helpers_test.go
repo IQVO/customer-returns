@@ -84,7 +84,7 @@ func (h *harness) seedReturn(t *testing.T, orderID string, disposition returnaut
 		t.Fatalf("seed group: %v", err)
 	}
 	if err := h.store.NetworkSaver().RegisterNode(ctx, network.Node{
-		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se",
+		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750",
 	}); err != nil {
 		t.Fatalf("seed node: %v", err)
 	}

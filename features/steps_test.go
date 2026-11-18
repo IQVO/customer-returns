@@ -16,6 +16,7 @@ func registerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Given(`^the order "([^"]*)" group (\d+) was placed with prefix "([^"]*)" and lines "([^"]*)"$`, w.placedOrder)
 	sc.Given(`^the group is (\w+)$`, w.groupStatus)
 	sc.Given(`^an ACTIVE returns centre "([^"]*)" serves region "([^"]*)" and prefix "([^"]*)" is in that region$`, w.returnsCentre)
+	sc.Given(`^node-topology registered "([^"]*)" at the postal code "([^"]*)"$`, w.nodePostalCode)
 	sc.Given(`^the vendor issued reverse label "([^"]*)" for the authorization$`, w.labelResponse)
 	sc.When(`^the vendor issued reverse label "([^"]*)" for the authorization$`, w.labelResponse)
 	sc.When(`^the shopper authorizes a return with unit price (\d+) cents$`, w.authorize)
@@ -25,6 +26,8 @@ func registerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Then(`^the state is (\w+)$`, w.state)
 	sc.Then(`^the problem is "([^"]*)" with status (\d+)$`, w.problem)
 	sc.Then(`^the authorization carries tracking number "([^"]*)"$`, w.tracking)
+	sc.Then(`^the reverse label was requested for the destination prefix "([^"]*)"$`, w.labelDestination)
+	sc.Then(`^no reverse label was requested$`, w.noLabelRequested)
 	sc.Then(`^a ReturnCompleted event names "([^"]*)" with (\d+) restockable units$`, w.completedEvent)
 	sc.Then(`^the outcome fact records line "([^"]*)" as unexpected$`, w.unexpectedFact)
 }
@@ -62,6 +65,35 @@ func (w *world) returnsCentre(node, region, prefix string) error {
 	return w.store.NetworkSaver().SavePrefix(ctx, network.PrefixAssignment{
 		PostalPrefix: prefix, RegionID: region, AssignmentVersion: 1,
 	})
+}
+
+// nodePostalCode applies the part of NodeRegistered the label needs: the node
+// read model keeps the label prefix of the postal code node-topology
+// published. A registration applied again keeps the node's lifecycle.
+func (w *world) nodePostalCode(node, code string) error {
+	ctx := context.Background()
+	held, err := w.store.NetworkSaver().Node(ctx, node)
+	if err != nil {
+		return err
+	}
+	held.LabelPostalPrefix = network.LabelPostalPrefix(code)
+	return w.store.NetworkSaver().RegisterNode(ctx, held)
+}
+
+// labelDestination asserts the ONE label call made named this destination.
+func (w *world) labelDestination(prefix string) error {
+	calls := w.store.IssuedLabels()
+	if len(calls) != 1 || calls[0].DestinationPostalPrefix != prefix {
+		return fmt.Errorf("label calls = %+v, want one for the destination prefix %s", calls, prefix)
+	}
+	return nil
+}
+
+func (w *world) noLabelRequested() error {
+	if calls := w.store.IssuedLabels(); len(calls) != 0 {
+		return fmt.Errorf("label calls = %+v, want none", calls)
+	}
+	return nil
 }
 
 func (w *world) labelResponse(tracking string) error {
