@@ -13,3 +13,8 @@ import (
 func TestNetworkNodesContract(t *testing.T) {
 	repocontract.NetworkNodes(t, memory.NewNetworkViewRepository(memory.NewStore()))
 }
+
+func TestInboxContract(t *testing.T) {
+	store := memory.NewStore()
+	repocontract.Inbox(t, memory.NewInbox(store), memory.NewUnitOfWork(store), store.ForgetClaims)
+}
