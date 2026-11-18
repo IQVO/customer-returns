@@ -74,12 +74,15 @@ func TestProducerExampleShopperNoticeDecided(t *testing.T) {
 func TestProducerExamplesNodeLifecycle(t *testing.T) {
 	h := newHarness(t)
 	feedExample(t, h.topo, exampleNodeTopologyNodeRegistered)
-	want := network.Node{NodeID: "node-0f3a91", Type: network.TypeFulfillmentCenter, RegionID: "region-se", Lifecycle: network.NodePending}
+	// The example's postal code is "07750-000": the view keeps the label
+	// prefix the provider's rule makes of it, never the code.
+	want := network.Node{NodeID: "node-0f3a91", Type: network.TypeFulfillmentCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: network.NodePending}
 	if got := h.node(t, "node-0f3a91"); got != want {
 		t.Fatalf("after NodeRegistered the node = %+v, want %+v", got, want)
 	}
 	// The three status examples carry the node id and an instant, nothing
-	// else: each moves the lifecycle and leaves type and region alone.
+	// else: each moves the lifecycle and leaves type, region and label prefix
+	// alone.
 	steps := []struct {
 		example   string
 		lifecycle network.NodeLifecycle
@@ -109,7 +112,7 @@ func TestProducerExampleNodeStatusBeforeItsRegistration(t *testing.T) {
 		t.Fatalf("lifecycle-only row = %+v, want %+v", got, want)
 	}
 	feedExample(t, h.topo, exampleNodeTopologyNodeRegistered)
-	want := network.Node{NodeID: "node-0f3a91", Type: network.TypeFulfillmentCenter, RegionID: "region-se", Lifecycle: network.NodeActive, LifecycleAt: at}
+	want := network.Node{NodeID: "node-0f3a91", Type: network.TypeFulfillmentCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: network.NodeActive, LifecycleAt: at}
 	if got := h.node(t, "node-0f3a91"); got != want {
 		t.Fatalf("after the late registration the node = %+v, want %+v", got, want)
 	}

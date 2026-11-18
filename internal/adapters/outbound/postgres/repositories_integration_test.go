@@ -179,8 +179,9 @@ func TestMigrationCeiling(t *testing.T) {
 	pgtest.NewPool(t) // boots the container and runs every migration
 	// The step count is the fleet's migration ceiling: 0001 schema, 0002 stem,
 	// 0003 the global Idempotency-Key (REST guideline 2.3), 0004 the node
-	// status facts (lifecycle_at, the producer's node types).
-	const wantSteps = 4
+	// status facts (lifecycle_at, the producer's node types), 0005 the label
+	// prefix of a node.
+	const wantSteps = 5
 	matches, err := filepath.Glob("migrations/*.up.sql")
 	if err != nil || len(matches) != wantSteps {
 		t.Fatalf("migrations = %d steps (%v), want %d (bump the ceiling when you add one)", len(matches), err, wantSteps)

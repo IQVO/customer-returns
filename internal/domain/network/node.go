@@ -7,8 +7,8 @@ import "time"
 // fact already set. Only a node never seen before starts PENDING, so a
 // registration applied again (a rebuild of the view) never demotes an ACTIVE,
 // SUSPENDED or RETIRED node.
-func (n Node) WithRegistration(nodeType NodeType, regionID string) Node {
-	n.Type, n.RegionID = nodeType, regionID
+func (n Node) WithRegistration(nodeType NodeType, regionID, labelPostalPrefix string) Node {
+	n.Type, n.RegionID, n.LabelPostalPrefix = nodeType, regionID, labelPostalPrefix
 	if n.Lifecycle == "" {
 		n.Lifecycle = NodePending
 	}
@@ -18,8 +18,8 @@ func (n Node) WithRegistration(nodeType NodeType, regionID string) Node {
 // WithStatus returns the row after a status fact that happened at the instant
 // at, and whether the fact applies. A fact older than the one that set the
 // current lifecycle is stale and changes nothing: a dead letter replayed after
-// a newer status must not undo it. Only the lifecycle moves; type and region
-// are never touched.
+// a newer status must not undo it. Only the lifecycle moves; type, region and
+// label prefix are never touched.
 func (n Node) WithStatus(lifecycle NodeLifecycle, at time.Time) (Node, bool) {
 	if at.Before(n.LifecycleAt) {
 		return n, false

@@ -22,32 +22,32 @@ func TestNodeWithRegistration(t *testing.T) {
 		{
 			name: "a node never seen starts PENDING",
 			held: Node{NodeID: "node-1"},
-			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodePending},
+			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodePending},
 		},
 		{
 			name: "an ACTIVE node keeps its lifecycle and its status instant",
-			held: Node{NodeID: "node-1", Type: TypeFulfillmentCenter, RegionID: "region-old", Lifecycle: NodeActive, LifecycleAt: statusT0},
-			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeActive, LifecycleAt: statusT0},
+			held: Node{NodeID: "node-1", Type: TypeFulfillmentCenter, RegionID: "region-old", LabelPostalPrefix: "13210", Lifecycle: NodeActive, LifecycleAt: statusT0},
+			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeActive, LifecycleAt: statusT0},
 		},
 		{
 			name: "a SUSPENDED node is not demoted",
 			held: Node{NodeID: "node-1", Lifecycle: NodeSuspended, LifecycleAt: statusT0},
-			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeSuspended, LifecycleAt: statusT0},
+			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeSuspended, LifecycleAt: statusT0},
 		},
 		{
 			name: "a RETIRED node is not demoted",
 			held: Node{NodeID: "node-1", Lifecycle: NodeRetired, LifecycleAt: statusT0},
-			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeRetired, LifecycleAt: statusT0},
+			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeRetired, LifecycleAt: statusT0},
 		},
 		{
 			name: "a PENDING node stays PENDING",
-			held: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodePending},
-			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodePending},
+			held: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodePending},
+			want: Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodePending},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := c.held.WithRegistration(TypeReturnsCenter, "region-se"); got != c.want {
+			if got := c.held.WithRegistration(TypeReturnsCenter, "region-se", "07750"); got != c.want {
 				t.Fatalf("WithRegistration = %+v, want %+v", got, c.want)
 			}
 		})
@@ -57,8 +57,8 @@ func TestNodeWithRegistration(t *testing.T) {
 // TestNodeWithStatus pins the status facts: only the lifecycle (and its
 // instant) moves, and a fact older than the one already applied is stale.
 func TestNodeWithStatus(t *testing.T) {
-	registered := Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodePending}
-	active := Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeActive, LifecycleAt: statusT1}
+	registered := Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodePending}
+	active := Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeActive, LifecycleAt: statusT1}
 	cases := []struct {
 		name      string
 		held      Node
@@ -70,19 +70,19 @@ func TestNodeWithStatus(t *testing.T) {
 		{
 			name: "the first status fact applies and keeps type and region",
 			held: registered, lifecycle: NodeActive, at: statusT0,
-			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeActive, LifecycleAt: statusT0},
+			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeActive, LifecycleAt: statusT0},
 			applied: true,
 		},
 		{
 			name: "a newer fact applies",
 			held: active, lifecycle: NodeSuspended, at: statusT1.Add(time.Nanosecond),
-			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeSuspended, LifecycleAt: statusT1.Add(time.Nanosecond)},
+			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeSuspended, LifecycleAt: statusT1.Add(time.Nanosecond)},
 			applied: true,
 		},
 		{
 			name: "a fact at the very same instant applies",
 			held: active, lifecycle: NodeSuspended, at: statusT1,
-			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", Lifecycle: NodeSuspended, LifecycleAt: statusT1},
+			want:    Node{NodeID: "node-1", Type: TypeReturnsCenter, RegionID: "region-se", LabelPostalPrefix: "07750", Lifecycle: NodeSuspended, LifecycleAt: statusT1},
 			applied: true,
 		},
 		{

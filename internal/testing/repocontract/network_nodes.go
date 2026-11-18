@@ -56,9 +56,13 @@ func (f nodeFixture) want(want network.Node) {
 	}
 }
 
+// labelPrefix is the label prefix every returns centre of the suite is
+// registered with, unless a case says otherwise.
+const labelPrefix = "07750"
+
 // returnsCentre is the row a NodeRegistered of a returns centre asks for.
 func returnsCentre(nodeID, regionID string) network.Node {
-	return network.Node{NodeID: nodeID, Type: network.TypeReturnsCenter, RegionID: regionID}
+	return network.Node{NodeID: nodeID, Type: network.TypeReturnsCenter, RegionID: regionID, LabelPostalPrefix: labelPrefix}
 }
 
 // held is the row the view must hold for a returns centre in the given
@@ -70,8 +74,9 @@ func held(nodeID, regionID string, lifecycle network.NodeLifecycle, at time.Time
 }
 
 // NetworkNodes is the contract of the node half of the ReturnsNetworkView
-// (ADR 0003): NodeRegistered owns the descriptive attributes, the status
-// facts own the lifecycle, and neither write touches what the other wrote.
+// (ADR 0003): NodeRegistered owns the descriptive attributes (type, region,
+// label prefix), the status facts own the lifecycle, and neither write touches
+// what the other wrote.
 // Every case uses its own node id and its own region, so the suite runs on
 // one store.
 func NetworkNodes(t *testing.T, repo ports.NetworkViewRepository) {
@@ -120,6 +125,33 @@ func NetworkNodes(t *testing.T, repo ports.NetworkViewRepository) {
 		f.status(id, network.NodeActive, t0)
 		f.register(returnsCentre(id, "region-c2"))
 		f.want(held(id, "region-c2", network.NodeActive, t0))
+	})
+
+	t.Run("a registration applied again fills the label prefix of a row that had none", func(t *testing.T) {
+		const id, region = "node-c3", "region-c3"
+		f := fixture(t)
+		// The row as a release before the prefix was kept left it, then ACTIVE.
+		before := returnsCentre(id, region)
+		before.LabelPostalPrefix = ""
+		f.register(before)
+		f.status(id, network.NodeActive, t0)
+		noPrefix := held(id, region, network.NodeActive, t0)
+		noPrefix.LabelPostalPrefix = ""
+		f.want(noPrefix)
+		// The same registration, applied again by the rebuild.
+		f.register(returnsCentre(id, region))
+		f.want(held(id, region, network.NodeActive, t0))
+	})
+
+	t.Run("a status fact never erases the label prefix", func(t *testing.T) {
+		const id, region = "node-c4", "region-c4"
+		f := fixture(t)
+		f.register(returnsCentre(id, region))
+		for i, lifecycle := range []network.NodeLifecycle{network.NodeActive, network.NodeSuspended, network.NodeRetired} {
+			at := t0.Add(time.Duration(i) * time.Minute)
+			f.status(id, lifecycle, at)
+			f.want(held(id, region, lifecycle, at))
+		}
 	})
 
 	t.Run("a status fact older than the one applied is a no-op", func(t *testing.T) {

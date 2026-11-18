@@ -123,7 +123,7 @@ func (r *NetworkViewRepository) RegisterNode(ctx context.Context, n network.Node
 	defer r.store.enter(ctx)()
 	held := r.store.nodes[n.NodeID]
 	held.NodeID = n.NodeID
-	r.store.nodes[n.NodeID] = held.WithRegistration(n.Type, n.RegionID)
+	r.store.nodes[n.NodeID] = held.WithRegistration(n.Type, n.RegionID, n.LabelPostalPrefix)
 	return nil
 }
 

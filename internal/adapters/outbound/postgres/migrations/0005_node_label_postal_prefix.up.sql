@@ -1,0 +1,12 @@
+-- The destination prefix of a reverse label is the RETURN DESTINATION's (the
+-- node the goods go back to), which only this context knows; the label call
+-- used to send the order group's prefix, i.e. the shopper's (ADR 0005,
+-- addendum 2026-11-17). The node half of the ReturnsNetworkView therefore keeps
+-- the label prefix of each node, derived from the postal code node-topology
+-- publishes on NodeRegistered. Only the prefix is kept, never the code.
+--
+-- Forward-only and additive: rows written before this migration get ''.
+-- NodeRegistered is published once per node, so those rows keep '' (and a
+-- label for a return to them answers 422 label-unavailable) until the
+-- registrations are applied again: the runbook's rebuild of a read model.
+ALTER TABLE returns_network_nodes ADD COLUMN label_postal_prefix TEXT NOT NULL DEFAULT '';

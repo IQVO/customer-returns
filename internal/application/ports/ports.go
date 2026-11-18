@@ -47,7 +47,7 @@ type GroupViewRepository interface {
 // order-sourcing's facts.
 type NetworkViewRepository interface {
 	// RegisterNode upserts the descriptive attributes of the node (n.Type,
-	// n.RegionID) from a NodeRegistered fact. A node never seen starts
+	// n.RegionID, n.LabelPostalPrefix) from a NodeRegistered fact. A node never seen starts
 	// PENDING; a node already held keeps its lifecycle and its status
 	// instant (n.Lifecycle and n.LifecycleAt are not read), so a registration
 	// applied again never demotes an ACTIVE, SUSPENDED or RETIRED node.

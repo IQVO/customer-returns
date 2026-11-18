@@ -62,14 +62,21 @@ const (
 )
 
 // Node is one row of the node half of the ReturnsNetworkView. NodeRegistered
-// carries the descriptive attributes (Type, RegionID); the three status facts
-// carry only the node id and move Lifecycle. Type and RegionID are empty on a
-// row a status fact created before the registration was seen.
+// carries the descriptive attributes (Type, RegionID, LabelPostalPrefix); the
+// three status facts carry only the node id and move Lifecycle. The
+// descriptive attributes are empty on a row a status fact created before the
+// registration was seen.
 type Node struct {
-	NodeID    string
-	Type      NodeType
-	RegionID  string
-	Lifecycle NodeLifecycle
+	NodeID   string
+	Type     NodeType
+	RegionID string
+	// LabelPostalPrefix is the destination prefix of a reverse label
+	// addressed to this node: LabelPostalPrefix of the postal code its
+	// registration published. Only the prefix is kept, never the code. It is
+	// "" for a node registered before the view kept it, and for a code that
+	// holds no ASCII letter or digit: no label can be addressed to the node.
+	LabelPostalPrefix string
+	Lifecycle         NodeLifecycle
 	// LifecycleAt is the instant of the status fact that set Lifecycle; the
 	// zero time while no status fact was applied.
 	LifecycleAt time.Time

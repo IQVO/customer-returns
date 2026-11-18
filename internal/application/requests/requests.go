@@ -75,11 +75,15 @@ type NoticeDecided struct {
 }
 
 // NodeRegistered is the parsed node-topology NodeRegistered: the one node fact
-// that carries the node's descriptive attributes.
+// that carries the node's descriptive attributes. PostalCode is the postal
+// code of the node's building as node-topology published it (not personal
+// data: it locates a warehouse, never a shopper); the use case keeps only the
+// label prefix derived from it.
 type NodeRegistered struct {
-	NodeID   string
-	NodeType network.NodeType
-	RegionID string
+	NodeID     string
+	NodeType   network.NodeType
+	RegionID   string
+	PostalCode string
 }
 
 // NodeStatus is the parsed NodeActivated, NodeSuspended or NodeRetired. The

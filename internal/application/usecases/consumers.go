@@ -72,13 +72,16 @@ func (s *Service) OnNoticeDecided(ctx context.Context, eventID string, e request
 }
 
 // OnNodeRegistered projects NodeRegistered into the ReturnsNetworkView's node
-// half: the fact that carries the node's type and region. A node never seen
-// starts PENDING; a registration applied again (a rebuild of the view) keeps
-// the lifecycle a status fact already set.
+// half: the fact that carries the node's type, region and postal code. Of the
+// postal code only the label prefix is kept (the destination prefix of a
+// reverse label addressed to the node, ADR 0005). A node never seen starts
+// PENDING; a registration applied again (a rebuild of the view) keeps the
+// lifecycle a status fact already set.
 func (s *Service) OnNodeRegistered(ctx context.Context, eventID, eventType string, e requests.NodeRegistered) error {
 	return s.consume(ctx, eventID, eventType, func(ctx context.Context) error {
 		return s.d.Network.RegisterNode(ctx, network.Node{
 			NodeID: e.NodeID, Type: e.NodeType, RegionID: e.RegionID,
+			LabelPostalPrefix: network.LabelPostalPrefix(e.PostalCode),
 		})
 	})
 }

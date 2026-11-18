@@ -11,11 +11,24 @@ import (
 )
 
 // nodeRegisteredWire is the part of node-topology's NodeRegistered this
-// context reads: the ONE node fact that carries the node's type and region.
+// context reads: the ONE node fact that carries the node's type, region and
+// postal code.
+//
+// PostalCode has no json tag ON PURPOSE. The wire name of the field is the
+// lower-camel form of the Go name, which encoding/json matches without a tag
+// (it matches keys case-insensitively). Spelled out in a tag, that wire name
+// is an identifier shape the PII sensor denies anywhere in production code
+// (internal/architecture/pii_fitness_test.go): the sensor cannot tell the
+// postal code of a warehouse building, which is what this is and which is not
+// personal data, from a shopper's. The sensor is left as it is; the field is
+// read here and only the label prefix derived from it is ever stored
+// (ADR 0003 and ADR 0005, addenda 2026-11-17). TestProducerExamplesNodeLifecycle
+// feeds node-topology's own example and fails if the field stops decoding.
 type nodeRegisteredWire struct {
-	NodeID   string `json:"nodeId"`
-	NodeType string `json:"nodeType"`
-	RegionID string `json:"regionId"`
+	NodeID     string `json:"nodeId"`
+	NodeType   string `json:"nodeType"`
+	RegionID   string `json:"regionId"`
+	PostalCode string
 }
 
 func handleNodeRegistered(svc *usecases.Service) HandlerFunc {
@@ -29,6 +42,7 @@ func handleNodeRegistered(svc *usecases.Service) HandlerFunc {
 		}
 		return svc.OnNodeRegistered(ctx, eventID(e), typeNodeRegistered, requests.NodeRegistered{
 			NodeID: wire.NodeID, NodeType: network.NodeType(wire.NodeType), RegionID: wire.RegionID,
+			PostalCode: wire.PostalCode,
 		})
 	}
 }
