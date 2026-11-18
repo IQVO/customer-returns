@@ -68,8 +68,12 @@ Source: `internal/application/usecases/{authorize,labels,outcome,queries,consume
   otherwise); the tracking number is new (a duplicate is not re-linked) and at most five are linked.
 - **Effect:** calls the shipping context's `POST /return-labels` with `Idempotency-Key: <authorizationId>:<packageNo>`
   OUTSIDE the unit of work; then ONE transaction re-reads the aggregate, links the tracking number and appends
-  `ReturnLabelIssued`. With `SHIPPING_LABELS_URL` unset — or any transport failure, non-201 or empty answer — the call
-  answers `422 label-unavailable` and nothing else happens.
+  `ReturnLabelIssued`. The request names the return's destination by the authorization's `destinationNodeId` and carries
+  no postal prefix: the label owner derives it from its own node view, and this context holds no address data of a node.
+  With `SHIPPING_LABELS_URL` unset — or any transport failure, non-201 or empty answer, the provider's
+  `409 destination-prefix-unavailable` for a node it does not know yet included — the call answers
+  `422 label-unavailable` and nothing else happens; the retry carries the same key and is served once the provider knows
+  the node ([ADR 0005](/docs/adr/0005-the-reverse-label-route), addendum 2026-11-18).
 
 ### CancelReturn
 

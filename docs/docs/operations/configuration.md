@@ -35,7 +35,7 @@ Composition root of the REST API, the three Kafka consumers, the outbox relay an
 | `TOPOLOGY_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the node-topology consumer. A group with no committed offset reads the topic from its earliest offset ([Runbook](/docs/operations/runbook#rebuilding-a-read-model-from-its-topic)). |
 | `SOURCING_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the order-sourcing consumer. |
 | `VENDOR_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the vendor-connectivity (return outcomes) consumer. |
-| `SHIPPING_LABELS_URL` | empty | no | Base URL of the shipping context's reverse-label route (ADR 0005). Empty keeps the label client off: a label request answers `422 label-unavailable`. |
+| `SHIPPING_LABELS_URL` | empty | no | Base URL of the shipping context's reverse-label route (ADR 0005). Empty keeps the label client off: a label request answers `422 label-unavailable`. Not to be set before the checklist of the [Runbook](/docs/operations/runbook#before-the-reverse-label-client-is-enabled) holds. |
 | `SSCC_COMPANY_PREFIX` | none | **yes** | The network's GS1 company prefix, 6 to 11 digits. Missing or invalid = boot error. SSCCs issued by the network are built from it. |
 | `SSCC_EXTENSION_DIGIT` | `0` | no | Extension digit of issued SSCCs, one digit 0..9. A non-numeric value or one outside 0..9 is a boot error. |
 | `OUTBOX_RELAY_INTERVAL` | `1s` | no | Pause between relay passes that did not fill a batch. A Go duration (`500ms`, `2s`) or plain seconds (`2`, `0.5`). Unparsable or non-positive values log a WARN and use the default. |

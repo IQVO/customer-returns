@@ -73,7 +73,7 @@ sequenceDiagram
     H->>UC: IssueLabel(authorizationId, packageNo)
     UC->>A: Get, expiry checked
     UC->>A: open and not KEEP?
-    UC->>L: POST /return-labels outside the unit of work
+    UC->>L: POST /return-labels with destinationNodeId, outside the unit of work
     alt route off or non-201
         L-->>UC: ErrLabelUnavailable
         UC-->>H: 422 label-unavailable, nothing else happens
@@ -91,7 +91,9 @@ sequenceDiagram
 ```
 
 Source: `internal/application/usecases/labels.go`, `internal/adapters/outbound/labels`
-([ADR 0005](/docs/adr/0005-the-reverse-label-route)). The client sends
+([ADR 0005](/docs/adr/0005-the-reverse-label-route)). The request names the return's destination by the authorization's
+destination node id and carries no postal prefix; a node the provider does not know yet is refused there
+(`409 destination-prefix-unavailable`) and answered here as the same tolerant `422 label-unavailable`. The client sends
 `Idempotency-Key: <authorizationId>:<packageNo>`; a retry is a replay, and a failure between the call and the commit is
 healed by the shipping context's dedupe.
 
