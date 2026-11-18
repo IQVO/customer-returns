@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/IQVO/customer-returns/internal/application/ports"
 	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/application/views"
 	"github.com/IQVO/customer-returns/internal/domain/returnauthorization"
@@ -13,8 +12,11 @@ import (
 
 // IssueLabel asks the shipping context for the shopper's reverse label (the
 // ONE in-org call of this context, ADR 0005), links the tracking number and
-// publishes ReturnLabelIssued. While that route is not live the call answers
-// 422 label-unavailable: a tolerant failure, never a 500. The HTTP call runs
+// publishes ReturnLabelIssued. The call names the return's destination by the
+// authorization's destination node id and sends no postal prefix: the label
+// owner derives it. While that route is not live, or refuses (a node it does
+// not know yet included), the call answers 422 label-unavailable: a tolerant
+// failure, never a 500. The HTTP call runs
 // OUTSIDE the unit of work; the link itself is one atomic save+append.
 func (s *Service) IssueLabel(ctx context.Context, req requests.IssueLabel) (views.ReturnAuthorization, error) {
 	if req.PackageNo < 1 || req.PackageNo > returnauthorization.MaxPackagesPerReturn {
@@ -30,13 +32,9 @@ func (s *Service) IssueLabel(ctx context.Context, req requests.IssueLabel) (view
 	if err := s.checkLabelable(a); err != nil {
 		return views.ReturnAuthorization{}, err
 	}
-	group, err := s.d.Groups.Group(ctx, a.OrderID(), a.GroupNo())
-	if err != nil {
-		return views.ReturnAuthorization{}, ports.ErrLabelUnavailable
-	}
 	label, err := s.d.Labels.IssueReturnLabel(ctx, requests.IssueReturnLabel{
 		ReturnAuthorizationID: a.ID(), OrderID: a.OrderID(), PackageNo: req.PackageNo,
-		DestinationPostalPrefix: group.DestinationPostalPrefix,
+		DestinationNodeID: a.DestinationNodeID(),
 	})
 	if err != nil {
 		return views.ReturnAuthorization{}, err

@@ -10,6 +10,7 @@ Feature: The return's transit and completion
     When the shopper authorizes a return with unit price 9900 cents
     And the vendor issued reverse label "trk-rev-1" for the authorization
     Then the authorization carries tracking number "trk-rev-1"
+    And the reverse label was requested for the destination node "node-rc-1"
     When the vendor submits an outcome of 1 restockable "sku-1" units at "node-rc-1"
     Then the state is RECEIVED
     And a ReturnCompleted event names "sku-1" with 1 restockable units

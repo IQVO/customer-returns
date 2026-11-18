@@ -60,6 +60,8 @@ the orchestrator restarts it (`watchWorkers`); it never sits "alive" with a dead
 - **One sibling REST route**: the reverse-label route of the shipping context
   (ADR 0005), called only when `SHIPPING_LABELS_URL` is set. It is unset in every
   deployment today; with it unset a label request answers `422 label-unavailable`.
+  What must hold before it is set:
+  [Before the reverse-label client is enabled](#before-the-reverse-label-client-is-enabled).
   Nothing else is called synchronously (ADR 0003).
 
 ## Health
@@ -292,6 +294,28 @@ DELETE FROM processed_events WHERE event_type = '<event_type>';
 
 A rebuild never has to stop the service: a request that meets a row not rebuilt yet answers what a lagging view
 answers (`group-not-shipped`, `no-return-destination` or `label-unavailable`), and the caller retries.
+
+## Before the reverse-label client is enabled
+
+`SHIPPING_LABELS_URL` is unset in every deployment and stays unset until every line below holds. The label call names
+the return's destination by its node id and sends no postal prefix; the shipping context derives the label's
+destination prefix from ITS OWN view of node-topology's registered nodes (ADR 0005, addendum 2026-11-18). This context
+holds no postal code or prefix of a node, so there is nothing to backfill here for the label. Enabling the client early
+is not unsafe, it only fails labels: a node the provider does not know is refused there with
+`409 destination-prefix-unavailable`, which is `422 label-unavailable` here, with nothing linked and nothing published.
+
+1. **The provider's node view is filled.** This is the shipping context's step, in its runbook (its ADR 0018): its view
+   of the registered nodes must hold every node that can be a return destination, which for nodes registered before its
+   change means its rebuild from `retailnetwork.node-topology.events`. Ask its operator for confirmation; this
+   repository cannot check it.
+2. **This context's node-topology dead letters were replayed** ([above](#replaying-the-node-topology-dead-letters)), so
+   returns centres are `ACTIVE` here and `decide` can choose NEAREST_RETURNS_CENTER:
+   `SELECT count(*) FROM returns_network_nodes WHERE node_type = 'RETURNS_CENTER' AND lifecycle = 'ACTIVE';` is not `0`.
+3. Only then set `config.shippingLabelsUrl` (in the cluster: `warehouse-infra` `helm-values/customer-returns.yaml`).
+4. After enabling: a `label-unavailable` for a return whose destination node the provider does not hold yet heals by
+   itself. The provider does not keep that refusal under the `Idempotency-Key`, and the key is the deterministic
+   `<authorizationId>:<packageNo>`, so the shopper's retry is served once the provider knows the node. Nothing is to be
+   repaired on this side.
 
 ## Seller compliance scorecard
 

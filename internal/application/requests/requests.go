@@ -126,13 +126,16 @@ type OutcomeLine struct {
 	QtyUnsellable  int
 }
 
-// IssueReturnLabel is the request body of the shipping context's future
-// POST /return-labels route (the ONE in-org call this context makes, ADR 0005).
+// IssueReturnLabel is the request of the shipping context's POST /return-labels
+// route (the ONE in-org call this context makes, ADR 0005). The return's
+// destination is named by its node id: this context holds no address data of
+// a node, the label owner derives the label's destination prefix from its own
+// node view (ADR 0005, addendum 2026-11-18).
 type IssueReturnLabel struct {
-	ReturnAuthorizationID   returnauthorization.ID
-	OrderID                 string
-	PackageNo               int
-	DestinationPostalPrefix string
+	ReturnAuthorizationID returnauthorization.ID
+	OrderID               string
+	PackageNo             int
+	DestinationNodeID     string
 }
 
 // ReturnLabel is the reverse label the shipping context issued.

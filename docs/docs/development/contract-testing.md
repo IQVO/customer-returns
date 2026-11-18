@@ -85,7 +85,7 @@ REST edge, in `internal/adapters/outbound/labels`:
 | R1 | `TestPinnedSpecCoversEveryCallSite` | The method and path the real client puts on the wire are an operation of the pin; every header the route requires (path-item and operation parameters) is sent and satisfies its schema, `Idempotency-Key` included; the request body satisfies the pinned request schema. |
 | R2 | `TestExamplesSatisfyPinnedSpec` | The answer fixtures satisfy the pinned schema of the 201. |
 | R3 | `TestGatewayDecodesSpecExamples` | The real client decodes a spec-shaped 201 and maps every error status the pin documents for the route to `ports.ErrLabelUnavailable`. |
-| R4 | `TestFieldsWeReadAreSpecified` | Every field of the client's wire structs is declared by the pin with a compatible type; a property the pin does not require must be one the client tolerates the absence of. |
+| R4 | `TestFieldsWeReadAreSpecified` | Every field of the client's wire structs is declared by the pin with a compatible type; a property the pin does not require must be one the client tolerates the absence of; the request carries no property the pin deprecates. |
 
 A fixture is taken from the pin's own examples. Where the pin has none, it is derived from the pinned schema's
 required properties and reported as "derived; producer example backfill pending". Today that is the whole REST
@@ -116,8 +116,10 @@ requires), do not edit the pin: it is a conversation with the producer's owners.
 
 - **`pinned-contracts` is advisory.** The job runs on every push and pull request but is not a required status
   check of `develop`; making it one is the owner's decision.
-- **The `POST /return-labels` request contract is under review** by its owner and may change. The pin is the
-  contract as it is on shipping-and-tracking's `develop` today.
+- **The `POST /return-labels` request names the destination node** since shipping-and-tracking's ADR 0018
+  (pin refreshed 2026-11-18). The provider still accepts the deprecated `destinationPostalPrefix`; this client
+  does not send it, and R4 fails if the client's request carries a property the pin deprecates. When the provider
+  removes the deprecated property, the refresh of the pin needs no change here.
 - **Unknown `dataschema` versions.** The consumers dispatch on the full `type` and never read `dataschema`, so an
   event of a known type with a version this context has not seen is handled like any other. Whether it should be
   skipped or dead-lettered instead is not decided (ADR 0003 and ADR 0004 do not say).

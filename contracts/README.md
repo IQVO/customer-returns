@@ -17,4 +17,4 @@ commit that changed the file). Update the row in the commit that refreshes the p
 | `node-topology.asyncapi.yaml` | `IQVO/node-topology` `apis/asyncapi.yaml` | `d3e6211` | `a71c81e` | 2026-11-18 |
 | `order-sourcing.asyncapi.yaml` | `IQVO/order-sourcing` `apis/asyncapi.yaml` | `f352218` | `74ca067` | 2026-11-18 |
 | `vendor-connectivity.asyncapi.yaml` | `IQVO/vendor-connectivity` `apis/asyncapi.yaml` | `c1187f5` | `c1187f5` | 2026-11-18 |
-| `shipping-and-tracking.openapi.yaml` | `IQVO/shipping-and-tracking` `apis/openapi.yaml` | `2c272ab` | `bb8a686` | 2026-11-18 |
+| `shipping-and-tracking.openapi.yaml` | `IQVO/shipping-and-tracking` `apis/openapi.yaml` | `15b61d0` | `15b61d0` | 2026-11-18 |

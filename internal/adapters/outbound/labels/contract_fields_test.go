@@ -35,7 +35,7 @@ func calledOperation(t *testing.T) *openapi3.Operation {
 	}))
 	t.Cleanup(srv.Close)
 	_, _ = NewClient(srv.URL, srv.Client()).IssueReturnLabel(context.Background(), requests.IssueReturnLabel{
-		ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationPostalPrefix: "01310",
+		ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationNodeID: "node-rc-1",
 	})
 	item := doc.Paths.Find(path)
 	if item == nil || item.GetOperation(method) == nil {
@@ -129,6 +129,36 @@ func checkWireField(t *testing.T, f reflect.StructField, schema *openapi3.Schema
 	}
 }
 
+// deprecatedSent lists the JSON fields of a wire struct the client SENDS that
+// the pinned schema deprecates. A property the producer deprecated is one it
+// will remove: the client must have stopped sending it before that day, not
+// on it.
+func deprecatedSent(wire reflect.Type, schema *openapi3.Schema) []string {
+	var found []string
+	for i := range wire.NumField() {
+		tag, _, _ := strings.Cut(wire.Field(i).Tag.Get("json"), ",")
+		if property := schema.Properties[tag]; property != nil && property.Value != nil && property.Value.Deprecated {
+			found = append(found, tag)
+		}
+	}
+	return found
+}
+
+// The deprecation check of R4 bites: a request struct that still carried the
+// caller-supplied prefix, which the pinned route deprecates, is reported, and
+// the node id beside it is not.
+func TestADeprecatedRequestPropertyIsReported(t *testing.T) {
+	op := calledOperation(t)
+	body := jsonSchemaOf(t, op.RequestBody.Value.Content)
+	type bothForms struct {
+		NodeID string `json:"destinationNodeId"`
+		Prefix string `json:"destinationPostalPrefix"`
+	}
+	if got := deprecatedSent(reflect.TypeOf(bothForms{}), body); !slices.Equal(got, []string{"destinationPostalPrefix"}) {
+		t.Fatalf("deprecated properties reported = %v, want only destinationPostalPrefix", got)
+	}
+}
+
 // R4.
 func TestFieldsWeReadAreSpecified(t *testing.T) {
 	op := calledOperation(t)
@@ -143,6 +173,9 @@ func TestFieldsWeReadAreSpecified(t *testing.T) {
 	}
 	body := jsonSchemaOf(t, op.RequestBody.Value.Content)
 	checkWireFields(t, reflect.TypeOf(request{}), body, "IssueReturnLabelRequest", false)
+	for _, tag := range deprecatedSent(reflect.TypeOf(request{}), body) {
+		t.Errorf("IssueReturnLabelRequest.%s: the pinned schema deprecates it and the client still sends it", tag)
+	}
 	// The client sends every property the producer requires.
 	sends := map[string]bool{}
 	for i := range reflect.TypeOf(request{}).NumField() {

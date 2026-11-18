@@ -22,7 +22,7 @@ const returnLabelBody = `{"labelRef":"lbl-7","trackingNumber":"RN-RET-7-2","carr
 	`"purpose":"RETURN","returnAuthorizationId":"ret-7"}`
 
 var labelRequest = requests.IssueReturnLabel{
-	ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationPostalPrefix: "01310",
+	ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationNodeID: "node-rc-1",
 }
 
 var wantLabel = requests.ReturnLabel{TrackingNumber: "RN-RET-7-2", Carrier: "RN-GROUND"}
@@ -120,6 +120,8 @@ func TestIssueReturnLabelMapsEveryProviderErrorToUnavailable(t *testing.T) {
 	}{
 		{"idempotency key required", http.StatusBadRequest, "idempotency-key-required"},
 		{"label already issued", http.StatusConflict, "label-already-issued"},
+		// The route holds no usable prefix for the destination node (yet).
+		{"destination prefix unavailable", http.StatusConflict, "destination-prefix-unavailable"},
 		{"tracking number taken", http.StatusConflict, "tracking-number-taken"},
 		{"concurrent update", http.StatusConflict, "concurrent-update"},
 		{"idempotency key reused", http.StatusConflict, "idempotency-key-reused"},
@@ -189,9 +191,11 @@ func TestIssueReturnLabelIsDisabledWithoutABaseURL(t *testing.T) {
 	assertUnavailable(t, got, err)
 }
 
-// The request is the IssueReturnLabelRequest of the contract: exactly its four
-// required properties (additionalProperties is false there) on POST
-// /return-labels, with the Idempotency-Key the route requires.
+// The request is the IssueReturnLabelRequest of the contract: its three
+// required properties and the destination named by its node id, the one of the
+// route's two forms this context uses (additionalProperties is false there, and
+// a request with both forms is refused) on POST /return-labels, with the
+// Idempotency-Key the route requires. No postal prefix is sent.
 func TestIssueReturnLabelSendsTheContractRequest(t *testing.T) {
 	var (
 		method, path string
@@ -217,7 +221,7 @@ func TestIssueReturnLabelSendsTheContractRequest(t *testing.T) {
 		t.Fatalf("called %s %s, want POST /return-labels", method, path)
 	}
 	want := map[string]any{
-		"returnAuthorizationId": "ret-7", "orderId": "ord-1", "packageNo": float64(2), "destinationPostalPrefix": "01310",
+		"returnAuthorizationId": "ret-7", "orderId": "ord-1", "packageNo": float64(2), "destinationNodeId": "node-rc-1",
 	}
 	if len(sent) != len(want) {
 		t.Fatalf("body = %v, want exactly %v", sent, want)
