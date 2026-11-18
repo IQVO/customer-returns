@@ -70,8 +70,9 @@ func (h *harness) group(orderID string, groupNo int) network.OrderGroup {
 	return g
 }
 
-// producerEvent returns a producer's own example (producer_examples_test.go)
-// with a new CloudEvents id and the named `data` fields replaced: the shape
+// producerEvent returns a producer's own example (pinned_examples_test.go,
+// read from the pinned spec) with a new CloudEvents id and the named `data`
+// fields replaced: the shape
 // stays the producer's, only the ids a scenario needs change. Tests never
 // invent a consumed payload.
 func producerEvent(t *testing.T, example, id string, set map[string]any) []byte {

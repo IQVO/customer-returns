@@ -71,7 +71,10 @@ content mode. This is a hard rule, not a preference:
 
 Constants and tolerant payload structs: `internal/adapters/inbound/kafka/consumers*.go`. A consumed
 payload is read as its producer publishes it: every consumed type has a test that feeds the producer's
-own AsyncAPI example through the real handler (`producer_examples_test.go`, ADR 0003 addendum). Each
+own AsyncAPI example through the real handler, and the examples are read from the producer's pinned
+spec (`contracts/<producer>.asyncapi.yaml`, registered in `contracts/pinned.json`; never edit a pin,
+see docs/docs/development/contract-testing.md), never pasted (`pinned_examples_test.go`,
+`contract_events_test.go`, ADR 0003 addenda). Each
 consumer's group comes from its mandatory variable (`ORDER_CONSUMER_GROUP`,
 `TOPOLOGY_CONSUMER_GROUP`, `SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP`).
 

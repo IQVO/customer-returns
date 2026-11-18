@@ -1,0 +1,35 @@
+{
+  "_doc": "Every contract copy this repo pins from a producer, and the producer branch it must equal. scripts/harness/pinned_contract_gate.py fails when a copy differs from the producer's develop. Refresh = copy the file, never edit it. The copies live beside this file, at the repo root, and NOT under internal/**/testdata: a producer's spec legitimately names fields this context must never hold (today node-topology's NodeRegistered carries the node's postal code), and internal/architecture/pii_fitness_test.go scans internal/, cmd/ and features/ for exactly those identifiers. See docs/docs/development/contract-testing.md.",
+  "pins": [
+    {
+      "local": "contracts/customer-ordering.asyncapi.yaml",
+      "repo": "IQVO/customer-ordering",
+      "path": "apis/asyncapi.yaml",
+      "ref": "develop"
+    },
+    {
+      "local": "contracts/node-topology.asyncapi.yaml",
+      "repo": "IQVO/node-topology",
+      "path": "apis/asyncapi.yaml",
+      "ref": "develop"
+    },
+    {
+      "local": "contracts/order-sourcing.asyncapi.yaml",
+      "repo": "IQVO/order-sourcing",
+      "path": "apis/asyncapi.yaml",
+      "ref": "develop"
+    },
+    {
+      "local": "contracts/vendor-connectivity.asyncapi.yaml",
+      "repo": "IQVO/vendor-connectivity",
+      "path": "apis/asyncapi.yaml",
+      "ref": "develop"
+    },
+    {
+      "local": "contracts/shipping-and-tracking.openapi.yaml",
+      "repo": "IQVO/shipping-and-tracking",
+      "path": "apis/openapi.yaml",
+      "ref": "develop"
+    }
+  ]
+}

@@ -34,7 +34,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Development',
-      items: ['development/testing'],
+      items: ['development/testing', 'development/contract-testing'],
     },
     {
       type: 'category',
