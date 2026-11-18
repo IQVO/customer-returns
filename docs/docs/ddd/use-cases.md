@@ -66,10 +66,17 @@ Source: `internal/application/usecases/{authorize,labels,outcome,queries,consume
 - **Inputs:** `authorizationId`, `packageNo` (1 to 5).
 - **Invariants:** expiry checked first; the authorization is open and its disposition is not KEEP (`illegal-transition`
   otherwise); the tracking number is new (a duplicate is not re-linked) and at most five are linked.
+- **Destination prefix:** the call names the return's destination by the label prefix of the DESTINATION NODE
+  (`DestinationNodeID`: the returns centre or the origin node), read from `returns_network_nodes.label_postal_prefix`. It is
+  the first 5 ASCII letters or digits of the postal code node-topology registered the node with, upper-cased (the label
+  provider's rule: `network.LabelPostalPrefix`). It is never the order group's prefix, which is the shopper's and only
+  resolves the region in `AuthorizeReturn`. A destination node the view does not hold, or holds without a prefix, answers
+  `422 label-unavailable` and the route is not called.
 - **Effect:** calls the shipping context's `POST /return-labels` with `Idempotency-Key: <authorizationId>:<packageNo>`
   OUTSIDE the unit of work; then ONE transaction re-reads the aggregate, links the tracking number and appends
   `ReturnLabelIssued`. With `SHIPPING_LABELS_URL` unset — or any transport failure, non-201 or empty answer — the call
-  answers `422 label-unavailable` and nothing else happens.
+  answers `422 label-unavailable` and nothing else happens
+  ([ADR 0005](/docs/adr/0005-the-reverse-label-route), addendum 2026-11-17).
 
 ### CancelReturn
 
@@ -98,7 +105,8 @@ Source: `internal/application/usecases/{authorize,labels,outcome,queries,consume
 witness of each group, and the ORDER's destination prefix, which customer-ordering publishes once per order; a terminal
 notice sets the status — a fact's status wins over the family). `OnNodeRegistered`, `OnNodeStatus` and `OnPrefixFact` fold
 node-topology's facts into `returns_network_nodes` and `service_area_prefixes` (the highest `assignmentVersion` wins; a
-stale write is a no-op). `NodeRegistered` is the one node fact that carries the type and the region; `NodeActivated`,
+stale write is a no-op). `NodeRegistered` is the one node fact that carries the type, the region and the postal code (of which only the label
+prefix is kept); `NodeActivated`,
 `NodeSuspended` and `NodeRetired` carry the node id and an instant, so they move the lifecycle only (only ACTIVE
 `RETURNS_CENTER`s are `Decide` candidates). A registration applied again never demotes the lifecycle, a status fact older
 than the one applied is a no-op, and a status fact for a node never seen keeps a lifecycle-only row the registration

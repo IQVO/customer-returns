@@ -110,8 +110,9 @@ each `cmd/api` variable maps 1:1 to a `values.yaml` `config.*` key rendered into
 Both `cmd/api` and, independently, `cmd/mcp` and `cmd/a2a` run the embedded golang-migrate migrations
 (`internal/adapters/outbound/postgres/migrations/`) at boot, with backoff, before opening the pool
 (`internal/bootretry`): `0001_customer_returns_schema`, `0002_customer_returns_stem` (outbox, inbox, idempotency keys),
-`0003_idempotency_key_global` and `0004_node_status_facts` (`returns_network_nodes.lifecycle_at`, and the node type
-stored as node-topology publishes it). golang-migrate's advisory lock makes concurrent starts safe, but it is a
+`0003_idempotency_key_global`, `0004_node_status_facts` (`returns_network_nodes.lifecycle_at`, and the node type
+stored as node-topology publishes it) and `0005_node_label_postal_prefix` (`returns_network_nodes.label_postal_prefix`,
+`''` for the rows written before it). golang-migrate's advisory lock makes concurrent starts safe, but it is a
 session lock: where `DATABASE_URL` points at a transaction-pooling proxy set `MIGRATIONS_DATABASE_URL` to a direct
 DSN. There is no manual migration step and no separate migration job. Every migration is forward-only and additive
 for existing rows; none rewrites a read model. Rows a fix cannot derive from what is stored are rebuilt from the
@@ -272,6 +273,7 @@ DELETE FROM processed_events WHERE event_type = '<event_type>';
 
 | Rows to rebuild | Written wrong by | `event_type` of the claims | Topic, consumer group variable | Why applying the fact again is safe |
 | --- | --- | --- | --- | --- |
+| `returns_network_nodes.label_postal_prefix` is empty (`SELECT count(*) FROM returns_network_nodes WHERE label_postal_prefix = '' AND node_type <> '';`) | every release before migration `0005`: the view did not keep it, and `NodeRegistered` is published once per node | `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | `retailnetwork.node-topology.events`, `TOPOLOGY_CONSUMER_GROUP` | `RegisterNode` upserts type, region and label prefix and never demotes the lifecycle; the status facts and service areas, still claimed, are skipped (`TestRebuildNodeLabelPrefix`, the contract case "a registration applied again fills the label prefix of a row that had none") |
 | `order_group_views.destination_postal_prefix` is empty (`SELECT count(*) FROM order_group_views WHERE destination_postal_prefix = '';`) | releases before the ADR 0003 addendum of 2026-11-17: the prefix was read from the group, where customer-ordering never publishes it | `CustomerOrderPlaced` | `retailnetwork.customer-ordering.events`, `ORDER_CONSUMER_GROUP` | `OnOrderPlaced` writes the lines, the witness and the order's prefix and never demotes a status a notice already set (`TestRebuildOrderGroupPrefix`) |
 | `group_origins` has no row for the follower groups of a merged release | the same releases: only the carrier group of a merged release got an origin | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode` | `retailnetwork.order-sourcing.events`, `SOURCING_CONSUMER_GROUP` | `OnOriginFact` merges into the row; the releases are applied in topic order and each member's `FulfillmentLocked`, still claimed, is skipped (`TestRebuildMergedReleaseOrigins`) |
 
@@ -292,6 +294,30 @@ DELETE FROM processed_events WHERE event_type = '<event_type>';
 
 A rebuild never has to stop the service: a request that meets a row not rebuilt yet answers what a lagging view
 answers (`group-not-shipped`, `no-return-destination` or `label-unavailable`), and the caller retries.
+
+## Before the reverse-label client is enabled
+
+`SHIPPING_LABELS_URL` is unset in every deployment and must stay unset until every line below holds. The label call
+names the return's destination by the label prefix of the destination node (ADR 0005, addendum 2026-11-17); a node
+without one answers `422 label-unavailable`, so enabling the client early is not unsafe, it only fails every label.
+
+1. The release with migration `0005` is running:
+   `SELECT count(*) FROM information_schema.columns WHERE table_name = 'returns_network_nodes' AND column_name = 'label_postal_prefix';`
+   answers `1`.
+2. The node-topology dead letters were replayed ([above](#replaying-the-node-topology-dead-letters)), so the returns
+   centres are `ACTIVE`.
+3. The node registrations were rebuilt ([Rebuilding a read model from its topic](#rebuilding-a-read-model-from-its-topic),
+   first row of the table): delete the `NodeRegistered` claims, then make the topology consumer read
+   `retailnetwork.node-topology.events` from the start. Doing steps 2 and 3 in ONE pass is possible and cheaper: delete
+   the claims first, then change `TOPOLOGY_CONSUMER_GROUP` once; the same re-read applies the registrations again and
+   the status facts that were dead-lettered.
+4. No node that can be a destination is left without a prefix:
+   `SELECT node_id, node_type, lifecycle FROM returns_network_nodes WHERE label_postal_prefix = '' AND node_type <> '';`
+   answers no row for an `ACTIVE` `RETURNS_CENTER`, and none for a node named in `group_origins.node_id`. A row that
+   stays empty after the rebuild is a node whose `NodeRegistered` the topic no longer retains (it cannot be rebuilt from
+   the topic; node-topology publishes the registration once) or whose postal code holds no letter or digit. Returns to
+   it keep answering `label-unavailable`.
+5. Only then set `config.shippingLabelsUrl` (in the cluster: `warehouse-infra` `helm-values/customer-returns.yaml`).
 
 ## Seller compliance scorecard
 

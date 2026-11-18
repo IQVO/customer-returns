@@ -25,7 +25,8 @@ the caller.
 - `POST /return-authorizations/{authorizationId}/cancellations` -> `CancelReturn`
 - `POST /return-authorizations/{authorizationId}/labels` -> `IssueLabel` — body `{packageNo}`
   1..5; calls the shipping context's reverse-label route (ADR 0005); 422
-  `label-unavailable` while that route is not configured
+  `label-unavailable` while that route is not configured or the destination node's label
+  prefix is not in the node read model
 - `GET /return-authorizations/{id}/events` is deliberately NOT built (audit = the event stream).
 - `GET /healthz` (liveness), `GET /readyz` (drain gate, Postgres ping, Kafka metadata): not business operations.
 

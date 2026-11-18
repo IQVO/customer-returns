@@ -66,6 +66,7 @@ sequenceDiagram
     autonumber
     participant H as http POST labels
     participant UC as IssueLabel
+    participant N as NetworkView
     participant L as LabelIssuer
     participant A as ReturnAuthorization
     participant R as AuthRepo
@@ -73,7 +74,12 @@ sequenceDiagram
     H->>UC: IssueLabel(authorizationId, packageNo)
     UC->>A: Get, expiry checked
     UC->>A: open and not KEEP?
-    UC->>L: POST /return-labels outside the unit of work
+    UC->>N: Node(DestinationNodeID)
+    alt node unknown or no label prefix
+        N-->>UC: not found, or LabelPostalPrefix empty
+        UC-->>H: 422 label-unavailable, the route is not called
+    end
+    UC->>L: POST /return-labels with the node's label prefix, outside the unit of work
     alt route off or non-201
         L-->>UC: ErrLabelUnavailable
         UC-->>H: 422 label-unavailable, nothing else happens
@@ -91,7 +97,8 @@ sequenceDiagram
 ```
 
 Source: `internal/application/usecases/labels.go`, `internal/adapters/outbound/labels`
-([ADR 0005](/docs/adr/0005-the-reverse-label-route)). The client sends
+([ADR 0005](/docs/adr/0005-the-reverse-label-route)). The destination prefix sent is the destination node's
+(`returns_network_nodes.label_postal_prefix`), never the order group's. The client sends
 `Idempotency-Key: <authorizationId>:<packageNo>`; a retry is a replay, and a failure between the call and the commit is
 healed by the shipping context's dedupe.
 

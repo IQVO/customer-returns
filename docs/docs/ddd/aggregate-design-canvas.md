@@ -68,7 +68,7 @@ needs is other contexts' facts, kept in read models outside the aggregate bounda
 | Read model | Table | Fed by |
 | --- | --- | --- |
 | `OrderGroupView` | `order_group_views` | `CustomerOrderPlaced` (each group's lines and witness, the order's prefix; `PROMISED`), the terminal `ShopperNoticeDecided` families (status) |
-| `ReturnsNetworkView`, node half | `returns_network_nodes` | `NodeRegistered` (type, region), `NodeActivated`, `NodeSuspended`, `NodeRetired` (the lifecycle only; only ACTIVE `RETURNS_CENTER`s are `Decide` candidates) |
+| `ReturnsNetworkView`, node half | `returns_network_nodes` | `NodeRegistered` (type, region, label prefix of the postal code), `NodeActivated`, `NodeSuspended`, `NodeRetired` (the lifecycle only; only ACTIVE `RETURNS_CENTER`s are `Decide` candidates) |
 | `ReturnsNetworkView`, prefix half | `service_area_prefixes` | `ServiceAreaAssigned` (highest `assignmentVersion` wins; a stale write is a no-op) |
 | `ReturnsNetworkView`, origin half | `group_origins` | `FulfillmentLocked` (the fulfilling node), `FulfillmentReleasedToNode` (the per-item `ownerRef`s) |
 | Outcome facts | `return_outcomes` | `VendorReturnOutcomeSubmitted` — the raw graded outcomes with per-line `unexpected` flags; the audit trail, nothing re-decides an authorization from them |

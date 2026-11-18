@@ -66,7 +66,9 @@ One method of `Service` per command and query; commands run in ONE `ports.UnitOf
 - Authorize (`authorize.go`): `AuthorizeReturn` - checks the group SHIPPED/DELIVERED,
   resolves lines + prices + ownerRefs, decides the disposition, saves, publishes.
 - Labels (`labels.go`): `IssueLabel` - the ONE in-org HTTP call (ADR 0005) OUTSIDE the unit
-  of work, then one atomic link+append; tolerant `422 label-unavailable`.
+  of work, then one atomic link+append; tolerant `422 label-unavailable`. The destination
+  prefix sent is the DESTINATION NODE's (`network.Node.LabelPostalPrefix`, from `NodeRegistered`),
+  never the order group's; unknown node or empty prefix = `label-unavailable`, no call.
 - Queries + cancel (`queries.go`): `GetReturnAuthorization`, `ListReturnAuthorizations`
   (keyset), `CancelReturn`, the lazy expiry.
 - Outcomes (`outcome.go`): `OnOutcomeSubmitted` - first fit completes, unexpected lines

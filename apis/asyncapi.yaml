@@ -395,7 +395,9 @@ components:
       description: '`type` = `com.retailnetwork.logistics.node-topology.node.NodeRegistered`; the ONE node fact that carries the node''s descriptive
         attributes. Consumed into the ReturnsNetworkView: a node never seen starts PENDING, a node already held keeps its lifecycle (a registration applied
         again never demotes an ACTIVE, SUSPENDED or RETIRED node). The node type is stored as published; only RETURNS_CENTER nodes ever influence a
-        disposition.'
+        disposition. Of `postalCode` this context keeps only the label prefix (the first 5 ASCII letters or digits, upper-cased; the whole when shorter): the
+        `destinationPostalPrefix` it sends on the reverse-label call for a return to this node (ADR 0005). A registration without a usable postal code is
+        still applied; a label for a return to that node then answers `422 label-unavailable`.'
       contentType: application/cloudevents+json
       tags:
       - name: customer-returns
@@ -417,6 +419,7 @@ components:
             nodeId: node-rc-1
             nodeType: RETURNS_CENTER
             regionId: region-east
+            postalCode: 07750-000
     NodeActivated:
       name: NodeActivated
       title: A node went ACTIVE
@@ -935,7 +938,8 @@ components:
           data:
             type: object
             description: The fields of node-topology's NodeRegistered this context relies on; the producer sends more (subtype, operator, vendor fields,
-              timezone, countryCode), all ignored.
+              timezone, countryCode), all ignored. `postalCode` is relied on and not required here: node-topology requires it and always sends it, and
+              a registration without it is still applied (tolerant reader).
             required:
             - nodeId
             - nodeType
@@ -948,6 +952,10 @@ components:
                 description: Stored as published. Only RETURNS_CENTER nodes influence a disposition.
               regionId:
                 type: string
+              postalCode:
+                type: string
+                description: The postal code of the node's building (not personal data). Relied on for the reverse label; only the label prefix derived
+                  from it is stored (`returns_network_nodes.label_postal_prefix`), never the code.
     NodeStatusEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'

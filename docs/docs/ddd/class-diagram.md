@@ -132,7 +132,9 @@ classDiagram
         +NodeID string
         +Type NodeType
         +RegionID string
+        +LabelPostalPrefix string
         +Lifecycle NodeLifecycle
+        +LifecycleAt time
     }
     class PrefixAssignment {
         <<ValueObject>>
