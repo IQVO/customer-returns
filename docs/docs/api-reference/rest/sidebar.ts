@@ -58,6 +58,28 @@ const sidebar: SidebarsConfig = {
         },
       ],
     },
+    {
+      type: "category",
+      label: "Reports",
+      link: {
+        type: "doc",
+        id: "api-reference/rest/reports",
+      },
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/rest/get-returns-performance-report",
+          label: "Returns performance per UTC day, reason Pareto and freshness",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/rest/get-report-freshness",
+          label: "How far the analytics projection is behind",
+          className: "api-method get",
+        },
+      ],
+    },
   ],
 };
 

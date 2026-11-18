@@ -20,18 +20,20 @@ import (
 )
 
 type world struct {
-	store   *memory.Store
-	clock   *memory.Clock
-	svc     *usecases.Service
-	api     *httptest.Server
-	order   *inboundkafka.Consumer
-	topo    *inboundkafka.Consumer
-	src     *inboundkafka.Consumer
-	vendor  *inboundkafka.Consumer
-	status  int
-	body    string
-	lastID  string
-	eventID int
+	store  *memory.Store
+	clock  *memory.Clock
+	svc    *usecases.Service
+	api    *httptest.Server
+	order  *inboundkafka.Consumer
+	topo   *inboundkafka.Consumer
+	src    *inboundkafka.Consumer
+	vendor *inboundkafka.Consumer
+	// analytics is the read side of the scenario (analytics_steps_test.go).
+	analytics *analyticsWorld
+	status    int
+	body      string
+	lastID    string
+	eventID   int
 }
 
 var start = time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
@@ -55,7 +57,7 @@ func newWorld() *world {
 	api := httptest.NewServer(inboundhttp.NewRouter(&inboundhttp.Server{Service: svc}, nil, ""))
 	logger := newQuietLogger()
 	return &world{
-		store: store, clock: clock, svc: svc, api: api,
+		store: store, clock: clock, svc: svc, api: api, analytics: newAnalyticsWorld(),
 		order:  inboundkafka.NewOrderConsumer([]string{"localhost:9092"}, "g", svc, logger),
 		topo:   inboundkafka.NewTopologyConsumer([]string{"localhost:9092"}, "g", svc, logger),
 		src:    inboundkafka.NewSourcingConsumer([]string{"localhost:9092"}, "g", svc, logger),
@@ -68,6 +70,7 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	w := newWorld()
 	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
 		w.api.Close()
+		w.analytics.reports.Close()
 		return ctx, nil
 	})
 	registerSteps(sc, w)

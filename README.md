@@ -29,7 +29,7 @@ Page map (source under `docs/docs/`):
 | Development | [Testing](docs/docs/development/testing.md) |
 | Ecosystem | [Integration](docs/docs/ecosystem/integration.md), [MCP tools](docs/docs/mcp/tools.md) |
 | API reference | [Overview](docs/docs/api-reference/overview.md) (REST pages generated from `apis/openapi.yaml`), [Events](docs/docs/api-reference/events.md) |
-| Decisions | [ADR index](docs/adr/index.md), decisions 0001 to 0011 |
+| Decisions | [ADR index](docs/adr/index.md), decisions 0001 to 0012 |
 
 The design source is the retail-network pages on warehouse-docs:
 
@@ -52,9 +52,15 @@ cmd/api/                     composition root: the returns REST API + outbox rel
 cmd/mcp/                     read-only MCP server (Streamable HTTP on /mcp)
 cmd/a2a/                     read-only A2A agent (JSON-RPC over HTTP, Agent Card at
                              /.well-known/agent-card.json)
+cmd/projector/               analytics projector: folds this context's OWN events topic
+                             into the separate analytical database (ADR 0012, default off)
+cmd/reports/                 read-only GET /reports/* over the analytical database (ADR 0012)
+analytics/                   the analytical database's embedded migrations
 internal/
   domain/                    returnauthorization (the aggregate + decide), network
-                             (the read-model value types), shared — pure business logic
+                             (the read-model value types), returnsperformance (the pure
+                             analytics read model: KPI and range rules, ports), shared
+                             — pure business logic
   application/
     ports/                   OUT interfaces only (repos, LabelIssuer, Clock)
     usecases/                one method per command, query and consumer policy
@@ -66,8 +72,10 @@ internal/
                              vendor-connectivity consumers
     inbound/mcp/             the two read-only MCP tools
     inbound/a2a/             the one read-only A2A skill
+    inbound/reportshttp/     the read-only /reports/* routes of cmd/reports
     inbound/requestlog/      the request log line
     outbound/postgres/       pgxpool repos, embedded golang-migrate, UnitOfWork
+    outbound/analyticsstore/ analytical-database writer and reader (+ in-memory twin)
     outbound/outbox/         transactional outbox writer + relay
     outbound/kafka/          the topic publisher behind the relay
     outbound/labels/         the ONE in-org HTTP client (the shipping context's
@@ -78,7 +86,7 @@ internal/
   architecture/              the fitness tests below
   bootretry/ testing/        boot retry, shared test helpers
 apis/                        openapi.yaml (REST) + asyncapi.yaml (events)
-docs/adr/                    10 ADRs + index
+docs/adr/                    11 ADRs + index
 features/                    godog feature files
 charts/customer-returns/     the Helm chart
 ```
@@ -103,6 +111,7 @@ Specified in `apis/asyncapi.yaml` — four published and ten consumed events:
 | `retailnetwork.node-topology.events` | consumes | `NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `ServiceAreaAssigned` |
 | `retailnetwork.order-sourcing.events` | consumes | `FulfillmentReleasedToNode`, `FulfillmentLocked` |
 | `retailnetwork.vendor-connectivity.events` | consumes | `VendorReturnOutcomeSubmitted` (the graded outcome that completes a return) |
+| `retailnetwork.customer-returns.events` | the analytics projector (`cmd/projector`, ADR 0012, default off) also consumes its OWN topic | `ReturnAuthorized`, `ReturnCompleted` (the other two are acknowledged); poison goes to `retailnetwork.customer-returns.analytics.dlq` |
 
 No published event carries a unit price, an address, a person's name, a phone number or free text; `reason` is an enum.
 
@@ -146,6 +155,10 @@ go run ./cmd/api                           # migrations run at boot; REST on :80
 | `SERVICE_VERSION` | `dev` | `service.version` |
 | `ENVIRONMENT` | `local` | `deployment.environment.name` |
 
+`cmd/projector` (the analytics writer, ADR 0012; only with the chart's `analytics.enabled`): `ANALYTICS_DATABASE_URL` (**required**, direct DSN of the SEPARATE analytical database, runs its embedded migrations), `KAFKA_BROKERS` (**required**), `ANALYTICS_CONSUMER_GROUP` (default `customer-returns-analytics`), `ADMIN_ADDR` (default `:8091`, `/healthz` and `/readyz`), `LOG_LEVEL`, `OTEL_SERVICE_NAME` (`customer-returns-projector`), `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION`, `ENVIRONMENT`. It never opens the OLTP database.
+
+`cmd/reports` (the analytics reader, ADR 0012; no Kafka, no OLTP database): `ANALYTICS_READER_DATABASE_URL` (a read-only role; falls back to `ANALYTICS_DATABASE_URL` for single-role local runs, one of the two is **required**), `HTTP_ADDR` (default `:8092`), `LOG_LEVEL`, `OTEL_SERVICE_NAME` (`customer-returns-reports`), `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION`, `ENVIRONMENT`.
+
 `cmd/mcp` (read-only: Postgres only, no Kafka, no writes): `MCP_ADDR` (default `:8090`), `DATABASE_URL` (**required**), `MIGRATIONS_DATABASE_URL` (default `DATABASE_URL`), `LOG_LEVEL` (`info`), `OTEL_SERVICE_NAME` (`customer-returns-mcp`), `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION` (`dev`), `ENVIRONMENT`.
 
 `cmd/a2a` (read-only, same rules as `cmd/mcp`): `A2A_ADDR` (default `:8093`), `A2A_AGENT_URL` (**required**, absolute http(s) URL advertised on the Agent Card), `DATABASE_URL` (**required**), `MIGRATIONS_DATABASE_URL`, `LOG_LEVEL`, `OTEL_SERVICE_NAME` (`customer-returns-a2a`), `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION`, `ENVIRONMENT`.
@@ -168,9 +181,18 @@ What it does, route by route:
 
 `GET /healthz` (liveness) and `GET /readyz` (Postgres + Kafka gate) serve the probes.
 
+## Analytics data product
+
+[ADR 0012](docs/adr/0012-analytics-read-side-and-return-rate-facts.md) adds the return-rate KPI baseline as a read side, **off by default** (`analytics.enabled=false` in the chart). `cmd/projector` consumes ONLY this context's own `retailnetwork.customer-returns.events` (`ReturnAuthorized`, `ReturnCompleted`; never a sibling's topic, never a REST or MCP call) into a separate analytical Postgres (`analytics/migrations/`, three tables, a projection that can be rebuilt from the topic); `cmd/reports` serves it read-only and unauthenticated:
+
+- `GET /reports/returns-performance?from=&to=` (UTC dates, both inclusive; default the 30 days ending today, at most 366; a bad range is `400 invalid-report-range`): per UTC day `returnsAuthorized` (a return is born authorized, so this is both "opened" and "approved"), `returnsReceived`, `timeToReceiveSamples` and the p50/p95 of `receivedAt - authorizedAt` in seconds (`null` without a sample, so a receipt whose authorization is not projected counts as received but has no timing); plus `reasonPareto` (the reason codes of the range, at most 5, with `share` and `cumulativeShare`) and `freshness`. An empty range answers empty arrays and null freshness.
+- `GET /reports/freshness`: `asOf` (newest CloudEvents time applied) and `lagSeconds`, both `null` before the first event.
+
+Deliberately NOT in the report: the **return rate** (its denominator, delivered or placed orders, is not in this context's own events) and **refunds and time to refund** (money is customer-payments' fact and no event here carries it). The reasons are in the ADR. The `internal/domain/returnsperformance` package holds the KPI rules and is in the coverage scope and the `mutation-fast` loop; one contract suite runs against the in-memory twin and real Postgres.
+
 ## Helm chart
 
-Deploy with `charts/customer-returns`. Values that matter: `config.*` (the env above, incl. the four consumer groups and `shippingLabelsUrl`), `database.url` (or `existingSecret`), `kafka.brokers`, `otel.enabled` (on by default; `false` renders no `OTEL_*` env at all) and `environment`. `mcp.enabled=true` (default off) adds the MCP Deployment + ClusterIP Service; `a2a.enabled=true` (default off) adds the A2A agent's. Linted and rendered in CI by the `helm-lint` (`ct lint`) and `chart-tests` jobs.
+Deploy with `charts/customer-returns`. Values that matter: `config.*` (the env above, incl. the four consumer groups and `shippingLabelsUrl`), `database.url` (or `existingSecret`), `kafka.brokers`, `otel.enabled` (on by default; `false` renders no `OTEL_*` env at all) and `environment`. `mcp.enabled=true` (default off) adds the MCP Deployment + ClusterIP Service; `a2a.enabled=true` (default off) adds the A2A agent's; `analytics.enabled=true` (default off, needs `analytics.database.projectorUrl` or `existingSecret` and `kafka.brokers`) adds the `analytics-projector` Deployment (no Service) and the `analytics-reports` Deployment + ClusterIP Service (`analytics.reports.route.enabled` adds the Kong route `/api/customer-returns/reports`). The default render is byte-identical without it. Linted and rendered in CI by the `helm-lint` (`ct lint`) and `chart-tests` jobs.
 
 ### Running the MCP server in Kubernetes
 
@@ -196,7 +218,7 @@ CI (`.github/workflows/ci.yml`) runs `lint`, `guide-lint`, `complexity`, `test`,
 
 ## Architecture Decision Records
 
-[docs/adr/](docs/adr/index.md) — index plus 10 ADRs (0001-0006 and 0008-0011: bounded context, aggregates and invariants, consumed contracts and local read models, CloudEvents envelope and type catalogue, the reverse-label route, read-only MCP server, fleet observability standard, A2A inbound adapter, fleet REST API guideline, agent authority levels).
+[docs/adr/](docs/adr/index.md) — index plus 11 ADRs (0001-0006 and 0008-0012: bounded context, aggregates and invariants, consumed contracts and local read models, CloudEvents envelope and type catalogue, the reverse-label route, read-only MCP server, fleet observability standard, A2A inbound adapter, fleet REST API guideline, agent authority levels, analytics read side and return-rate facts).
 
 ## License
 

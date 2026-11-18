@@ -14,7 +14,7 @@
     "write-heading-ids": "docusaurus write-heading-ids",
     "typecheck": "tsc",
     "gen-api-docs": "docusaurus gen-api-docs customer-returns",
-    "clean-api-docs": "docusaurus clean-api-docs seller-inbound"
+    "clean-api-docs": "docusaurus clean-api-docs customer-returns"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
