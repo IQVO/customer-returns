@@ -37,11 +37,15 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 
 var _ ports.LabelIssuer = (*Client)(nil)
 
+// request is the IssueReturnLabelRequest of the route. The return destination
+// is named by its node id, the one of the route's two forms this context
+// uses: it never sends the deprecated caller-supplied prefix, and the route
+// refuses a request that carries both.
 type request struct {
-	ReturnAuthorizationID   string `json:"returnAuthorizationId"`
-	OrderID                 string `json:"orderId"`
-	PackageNo               int    `json:"packageNo"`
-	DestinationPostalPrefix string `json:"destinationPostalPrefix"`
+	ReturnAuthorizationID string `json:"returnAuthorizationId"`
+	OrderID               string `json:"orderId"`
+	PackageNo             int    `json:"packageNo"`
+	DestinationNodeID     string `json:"destinationNodeId"`
 }
 
 // response is what this context reads of the route's ReturnLabel answer: two
@@ -66,10 +70,10 @@ func (c *Client) IssueReturnLabel(ctx context.Context, in requests.IssueReturnLa
 		return requests.ReturnLabel{}, ports.ErrLabelUnavailable
 	}
 	body, err := json.Marshal(request{
-		ReturnAuthorizationID:   string(in.ReturnAuthorizationID),
-		OrderID:                 in.OrderID,
-		PackageNo:               in.PackageNo,
-		DestinationPostalPrefix: in.DestinationPostalPrefix,
+		ReturnAuthorizationID: string(in.ReturnAuthorizationID),
+		OrderID:               in.OrderID,
+		PackageNo:             in.PackageNo,
+		DestinationNodeID:     in.DestinationNodeID,
 	})
 	if err != nil {
 		return requests.ReturnLabel{}, ports.ErrLabelUnavailable
@@ -82,7 +86,10 @@ func (c *Client) IssueReturnLabel(ctx context.Context, in requests.IssueReturnLa
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	// The shipping context dedupes RETURN labels per (returnAuthorizationId,
-	// packageNo); the key restates that pair so a retry is a replay.
+	// packageNo); the key restates that pair so a retry is a replay. A refusal
+	// for a node the route does not know yet (409
+	// destination-prefix-unavailable) is not kept under the key there, so the
+	// same key is served once the route knows the node.
 	req.Header.Set("Idempotency-Key", fmt.Sprintf("%s:%d", in.ReturnAuthorizationID, in.PackageNo))
 	resp, err := c.http.Do(req)
 	if err != nil {

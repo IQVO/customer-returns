@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/IQVO/customer-returns/internal/adapters/outbound/memory"
+	"github.com/IQVO/customer-returns/internal/application/ports"
 	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/application/usecases"
 	"github.com/IQVO/customer-returns/internal/application/views"
@@ -50,10 +51,17 @@ type fixture struct {
 
 func price(c int64) *int64 { return &c }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureWithLabels(t, nil) }
+
+// newFixtureWithLabels builds the fixture over the given label port (nil: the
+// memory double, which records every call).
+func newFixtureWithLabels(t *testing.T, issuer ports.LabelIssuer) *fixture {
 	_ = t
 	t.Helper()
 	store := memory.NewStore()
+	if issuer == nil {
+		issuer = memory.NewLabelIssuer(store)
+	}
 	clock := &memory.Clock{}
 	clock.Set(t0)
 	metrics := newCountingMetrics()
@@ -63,7 +71,7 @@ func newFixture(t *testing.T) *fixture {
 		Groups:         memory.NewGroupViewRepository(store),
 		Network:        memory.NewNetworkViewRepository(store),
 		Outcomes:       memory.NewOutcomeFacts(store),
-		Labels:         memory.NewLabelIssuer(store),
+		Labels:         issuer,
 		Outbox:         memory.NewOutbox(store),
 		Inbox:          memory.NewInbox(store),
 		Metrics:        metrics,

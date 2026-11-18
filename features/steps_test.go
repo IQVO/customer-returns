@@ -26,6 +26,7 @@ func registerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Then(`^the state is (\w+)$`, w.state)
 	sc.Then(`^the problem is "([^"]*)" with status (\d+)$`, w.problem)
 	sc.Then(`^the authorization carries tracking number "([^"]*)"$`, w.tracking)
+	sc.Then(`^the reverse label was requested for the destination node "([^"]*)"$`, w.labelDestination)
 	sc.Then(`^a ReturnCompleted event names "([^"]*)" with (\d+) restockable units$`, w.completedEvent)
 	sc.Then(`^the outcome fact records line "([^"]*)" as unexpected$`, w.unexpectedFact)
 }
@@ -63,6 +64,17 @@ func (w *world) returnsCentre(node, region, prefix string) error {
 	return w.store.NetworkSaver().SavePrefix(ctx, network.PrefixAssignment{
 		PostalPrefix: prefix, RegionID: region, AssignmentVersion: 1,
 	})
+}
+
+// labelDestination asserts the ONE label call made named the return's
+// destination by this node id (the request carries no postal prefix: its
+// type has none).
+func (w *world) labelDestination(node string) error {
+	calls := w.store.IssuedLabels()
+	if len(calls) != 1 || calls[0].DestinationNodeID != node {
+		return fmt.Errorf("label calls = %+v, want one for the destination node %s", calls, node)
+	}
+	return nil
 }
 
 func (w *world) labelResponse(tracking string) error {

@@ -35,7 +35,7 @@ func calledOperation(t *testing.T) *openapi3.Operation {
 	}))
 	t.Cleanup(srv.Close)
 	_, _ = NewClient(srv.URL, srv.Client()).IssueReturnLabel(context.Background(), requests.IssueReturnLabel{
-		ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationPostalPrefix: "01310",
+		ReturnAuthorizationID: "ret-7", OrderID: "ord-1", PackageNo: 2, DestinationNodeID: "node-rc-1",
 	})
 	item := doc.Paths.Find(path)
 	if item == nil || item.GetOperation(method) == nil {
@@ -108,6 +108,11 @@ func checkWireField(t *testing.T, f reflect.StructField, schema *openapi3.Schema
 	if property == nil || property.Value == nil {
 		t.Errorf("%s: the client carries it, the pinned schema does not declare it", path)
 		return
+	}
+	// A property the producer deprecated is one it will remove: the client
+	// must have stopped sending it before that day, not on it.
+	if !reads && property.Value.Deprecated {
+		t.Errorf("%s: the pinned schema deprecates it and the client still sends it", path)
 	}
 	kind := f.Type.Kind()
 	if kind == reflect.Pointer {
