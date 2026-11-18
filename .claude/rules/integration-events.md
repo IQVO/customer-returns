@@ -69,7 +69,9 @@ content mode. This is a hard rule, not a preference:
 
 ### Consumed types
 
-Constants and tolerant payload structs: `internal/adapters/inbound/kafka/consumers.go`. Each
+Constants and tolerant payload structs: `internal/adapters/inbound/kafka/consumers*.go`. A consumed
+payload is read as its producer publishes it: every consumed type has a test that feeds the producer's
+own AsyncAPI example through the real handler (`producer_examples_test.go`, ADR 0003 addendum). Each
 consumer's group comes from its mandatory variable (`ORDER_CONSUMER_GROUP`,
 `TOPOLOGY_CONSUMER_GROUP`, `SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP`).
 
@@ -77,7 +79,8 @@ consumer's group comes from its mandatory variable (`ORDER_CONSUMER_GROUP`,
 | --- | --- | --- |
 | `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced` | customer-ordering.events | `OnOrderPlaced` |
 | `com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided` (terminal families) | customer-ordering.events | `OnNoticeDecided` |
-| `com.retailnetwork.logistics.node-topology.node.NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | node-topology.events | `OnNodeFact` |
+| `com.retailnetwork.logistics.node-topology.node.NodeRegistered` | node-topology.events | `OnNodeRegistered` |
+| `com.retailnetwork.logistics.node-topology.node.NodeActivated`, `NodeSuspended`, `NodeRetired` (the node id and an instant only) | node-topology.events | `OnNodeStatus` |
 | `com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned` | node-topology.events | `OnPrefixFact` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode`, `FulfillmentLocked` | order-sourcing.events | `OnOriginFact` |
 | `com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted` | vendor-connectivity.events | `OnOutcomeSubmitted` |

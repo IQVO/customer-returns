@@ -30,7 +30,7 @@ absolute http(s) URL the card advertises) is mandatory; the chart deploys it beh
 | `DATABASE_URL` | required | Postgres DSN of the service's pool. A boot error names it when unset. |
 | `MIGRATIONS_DATABASE_URL` | `DATABASE_URL` | Direct DSN for the boot migrations (golang-migrate holds a session advisory lock, which breaks behind a transaction-pooling proxy). |
 | `KAFKA_BROKERS` | required | Comma-separated `host:port` list (relay, consumers and `/readyz`). A boot error names it when unset or blank. |
-| `NODE_CONSUMER_GROUP`, `CATALOG_CONSUMER_GROUP`, `RECEIPT_CONSUMER_GROUP` | required | Stable consumer group ids of the node-topology, offer-availability (packaging) and customer-returns (receipts) consumers. A boot error names the missing one. |
+| `ORDER_CONSUMER_GROUP`, `TOPOLOGY_CONSUMER_GROUP`, `SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP` | required | Stable consumer group ids of the customer-ordering, node-topology, order-sourcing and vendor-connectivity consumers. A boot error names the missing one. |
 | `SSCC_COMPANY_PREFIX` | required | The network's GS1 company prefix, 6 to 11 digits; SSCCs the network issues are built from it (ADR 0002 A5). A boot error names it when unset or invalid. |
 | `SSCC_EXTENSION_DIGIT` | `0` | Extension digit of issued SSCCs, one digit 0..9. |
 | `EVENT_PUBLISHER` | `kafka` | Only `kafka` is accepted; any other value is a boot error. |
