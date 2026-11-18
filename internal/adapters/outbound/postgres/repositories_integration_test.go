@@ -132,10 +132,13 @@ func TestViewRepositoriesRoundTrip(t *testing.T) {
 		t.Fatalf("Group = %+v %v", g, err)
 	}
 
-	if err := net.SaveNode(ctx, network.Node{
-		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se", Lifecycle: network.NodeActive,
+	if err := net.RegisterNode(ctx, network.Node{
+		NodeID: "node-rc-1", Type: network.TypeReturnsCenter, RegionID: "region-se",
 	}); err != nil {
-		t.Fatalf("SaveNode: %v", err)
+		t.Fatalf("RegisterNode: %v", err)
+	}
+	if err := net.SetNodeLifecycle(ctx, "node-rc-1", network.NodeActive, time.Now().UTC()); err != nil {
+		t.Fatalf("SetNodeLifecycle: %v", err)
 	}
 	if err := net.SavePrefix(ctx, network.PrefixAssignment{PostalPrefix: "013", RegionID: "region-se", AssignmentVersion: 2}); err != nil {
 		t.Fatalf("SavePrefix: %v", err)
@@ -175,8 +178,9 @@ func TestViewRepositoriesRoundTrip(t *testing.T) {
 func TestMigrationCeiling(t *testing.T) {
 	pgtest.NewPool(t) // boots the container and runs every migration
 	// The step count is the fleet's migration ceiling: 0001 schema, 0002 stem,
-	// 0003 the global Idempotency-Key (REST guideline 2.3).
-	const wantSteps = 3
+	// 0003 the global Idempotency-Key (REST guideline 2.3), 0004 the node
+	// status facts (lifecycle_at, the producer's node types).
+	const wantSteps = 4
 	matches, err := filepath.Glob("migrations/*.up.sql")
 	if err != nil || len(matches) != wantSteps {
 		t.Fatalf("migrations = %d steps (%v), want %d (bump the ceiling when you add one)", len(matches), err, wantSteps)

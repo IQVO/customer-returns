@@ -16,7 +16,7 @@ func (s *Service) OnOrderPlaced(ctx context.Context, eventID string, e requests.
 		for _, g := range e.Groups {
 			row := network.OrderGroup{
 				OrderID: e.OrderID, GroupNo: g.GroupNo, Status: network.GroupPromised,
-				DestinationPostalPrefix: g.DestinationPostalPrefix,
+				DestinationPostalPrefix: e.DestinationPostalPrefix,
 				WitnessNodeID:           g.WitnessNodeID,
 				Lines:                   append([]network.GroupLine(nil), g.Lines...),
 				UpdatedAt:               s.d.Clock.Now(),
@@ -71,13 +71,27 @@ func (s *Service) OnNoticeDecided(ctx context.Context, eventID string, e request
 	})
 }
 
-// OnNodeFact projects the node lifecycle facts into the ReturnsNetworkView's
-// node half: only ACTIVE RETURNS_CENTERs are ever returned to.
-func (s *Service) OnNodeFact(ctx context.Context, eventID, eventType string, e requests.NodeFact) error {
+// OnNodeRegistered projects NodeRegistered into the ReturnsNetworkView's node
+// half: the fact that carries the node's type and region. A node never seen
+// starts PENDING; a registration applied again (a rebuild of the view) keeps
+// the lifecycle a status fact already set.
+func (s *Service) OnNodeRegistered(ctx context.Context, eventID, eventType string, e requests.NodeRegistered) error {
 	return s.consume(ctx, eventID, eventType, func(ctx context.Context) error {
-		return s.d.Network.SaveNode(ctx, network.Node{
-			NodeID: e.NodeID, Type: e.NodeType, RegionID: e.RegionID, Lifecycle: e.Lifecycle,
+		return s.d.Network.RegisterNode(ctx, network.Node{
+			NodeID: e.NodeID, Type: e.NodeType, RegionID: e.RegionID,
 		})
+	})
+}
+
+// OnNodeStatus projects NodeActivated, NodeSuspended and NodeRetired: the
+// facts name the node only, so they move the lifecycle and never touch what
+// the registration wrote (only ACTIVE RETURNS_CENTERs are ever returned to).
+// Order tolerance (ADR 0003): a status fact for a node this view never saw
+// keeps a lifecycle-only row the registration completes, and a fact older than
+// the one already applied is a no-op.
+func (s *Service) OnNodeStatus(ctx context.Context, eventID, eventType string, e requests.NodeStatus) error {
+	return s.consume(ctx, eventID, eventType, func(ctx context.Context) error {
+		return s.d.Network.SetNodeLifecycle(ctx, e.NodeID, e.Lifecycle, e.At)
 	})
 }
 
@@ -94,27 +108,39 @@ func (s *Service) OnPrefixFact(ctx context.Context, eventID string, e requests.P
 // OnOriginFact projects FulfillmentReleasedToNode and FulfillmentLocked into
 // the origin half of the ReturnsNetworkView: the lock names the fulfilling
 // node authoritatively; the release additionally carries the per-item
-// ownerRefs (whose stock the lines took).
-func (s *Service) OnOriginFact(ctx context.Context, eventID, eventType string, e requests.OriginFact) error {
+// ownerRefs (whose stock the lines took). One event may speak for several
+// groups (a merged release names every member group): all of them are
+// projected under the one inbox claim of the event.
+func (s *Service) OnOriginFact(ctx context.Context, eventID, eventType string, facts ...requests.OriginFact) error {
 	return s.consume(ctx, eventID, eventType, func(ctx context.Context) error {
-		row, err := s.d.Network.Origin(ctx, e.OrderID, e.GroupNo)
-		if errors.Is(err, ports.ErrNotFound) {
-			row = network.GroupOrigin{OrderID: e.OrderID, GroupNo: e.GroupNo}
-		} else if err != nil {
-			return err
-		}
-		if e.NodeID != "" {
-			row.NodeID = e.NodeID
-		}
-		if len(e.Owners) > 0 && row.OwnersByItem == nil {
-			row.OwnersByItem = map[string]string{}
-		}
-		for item, owner := range e.Owners {
-			if owner != "" {
-				row.OwnersByItem[item] = owner
+		for _, e := range facts {
+			if err := s.projectOrigin(ctx, e); err != nil {
+				return err
 			}
 		}
-		row.UpdatedAt = s.d.Clock.Now()
-		return s.d.Network.SaveOrigin(ctx, row)
+		return nil
 	})
+}
+
+// projectOrigin merges one group's origin fact into its row.
+func (s *Service) projectOrigin(ctx context.Context, e requests.OriginFact) error {
+	row, err := s.d.Network.Origin(ctx, e.OrderID, e.GroupNo)
+	if errors.Is(err, ports.ErrNotFound) {
+		row = network.GroupOrigin{OrderID: e.OrderID, GroupNo: e.GroupNo}
+	} else if err != nil {
+		return err
+	}
+	if e.NodeID != "" {
+		row.NodeID = e.NodeID
+	}
+	if len(e.Owners) > 0 && row.OwnersByItem == nil {
+		row.OwnersByItem = map[string]string{}
+	}
+	for item, owner := range e.Owners {
+		if owner != "" {
+			row.OwnersByItem[item] = owner
+		}
+	}
+	row.UpdatedAt = s.d.Clock.Now()
+	return s.d.Network.SaveOrigin(ctx, row)
 }

@@ -51,9 +51,12 @@ func (w *world) groupStatus(status string) error {
 
 func (w *world) returnsCentre(node, region, prefix string) error {
 	ctx := context.Background()
-	if err := w.store.NetworkSaver().SaveNode(ctx, network.Node{
-		NodeID: node, Type: network.TypeReturnsCenter, RegionID: region, Lifecycle: network.NodeActive,
+	if err := w.store.NetworkSaver().RegisterNode(ctx, network.Node{
+		NodeID: node, Type: network.TypeReturnsCenter, RegionID: region,
 	}); err != nil {
+		return err
+	}
+	if err := w.store.NetworkSaver().SetNodeLifecycle(ctx, node, network.NodeActive, start); err != nil {
 		return err
 	}
 	return w.store.NetworkSaver().SavePrefix(ctx, network.PrefixAssignment{
@@ -84,10 +87,13 @@ func (w *world) authorize(cents int) error {
 }
 
 func (w *world) outcome(restockable int, item, node string) error {
+	// The payload has the shape vendor-connectivity publishes
+	// (outcomeSubmittedData in its outbound encoder): both quantities always.
 	err := w.feed(w.vendor, "com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", w.lastID, map[string]any{
+		"transactionId": "tx-" + w.lastID, "vendorId": "vendor-77",
 		"authorizationId": w.lastID, "nodeId": node,
 		"receivedAt": start.Add(96 * time.Hour),
-		"lines":      []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable}},
+		"lines":      []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable, "qtyUnsellable": 0}},
 	})
 	if err != nil {
 		return err

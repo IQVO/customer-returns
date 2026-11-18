@@ -61,12 +61,18 @@ const (
 	TypeDeliveryStation   NodeType = "DELIVERY_STATION"
 )
 
-// Node is one row of the node half of the ReturnsNetworkView.
+// Node is one row of the node half of the ReturnsNetworkView. NodeRegistered
+// carries the descriptive attributes (Type, RegionID); the three status facts
+// carry only the node id and move Lifecycle. Type and RegionID are empty on a
+// row a status fact created before the registration was seen.
 type Node struct {
 	NodeID    string
 	Type      NodeType
 	RegionID  string
 	Lifecycle NodeLifecycle
+	// LifecycleAt is the instant of the status fact that set Lifecycle; the
+	// zero time while no status fact was applied.
+	LifecycleAt time.Time
 }
 
 // PrefixAssignment is the prefix half of the ReturnsNetworkView: which region
