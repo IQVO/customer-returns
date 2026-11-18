@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -516,55 +515,8 @@ func noticeData(orderID string, groupNo int, family, status string) string {
 		orderID, groupNo, family, status)
 }
 
-// stubShippingLabels plays the shipping context's POST /return-labels route:
-// package 3 is the outage case (503 ship-to-unavailable), everything else
-// answers what the route answers on success, 201 Created with a ReturnLabel
-// (every required property of that schema).
-func stubShippingLabels(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/return-labels" || r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		var body struct {
-			ReturnAuthorizationID string `json:"returnAuthorizationId"`
-			OrderID               string `json:"orderId"`
-			PackageNo             int    `json:"packageNo"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ReturnAuthorizationID == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if r.Header.Get("Idempotency-Key") == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if body.PackageNo == 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		tracking := fmt.Sprintf("RN-RET-%s-%d", strings.TrimPrefix(body.ReturnAuthorizationID, "ret-"), body.PackageNo)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"labelRef":              "lbl-" + tracking,
-			"trackingNumber":        tracking,
-			"carrier":               "RN-GROUND",
-			"packageNo":             body.PackageNo,
-			"orderId":               body.OrderID,
-			"tier":                  "STANDARD",
-			"status":                "ISSUED",
-			"issuedAt":              "2026-11-16T12:00:00Z",
-			"purpose":               "RETURN",
-			"returnAuthorizationId": body.ReturnAuthorizationID,
-		})
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// world is what the phases share.
+// world is what the phases share. The stub of the shipping context's
+// reverse-label route is in labels_stub_integration_test.go.
 type world struct {
 	kc      *tckafka.KafkaContainer
 	db      pgView
@@ -573,6 +525,8 @@ type world struct {
 	mainID, keepID, pricesID, cancelID string
 
 	events []string // the event names in published order
+
+	labels *labelStub // what the reverse-label route was sent
 
 }
 
@@ -720,6 +674,21 @@ func phaseLabel(t *testing.T, s *service, w *world) {
 	// A cancelled authorization is never labelable.
 	assertProblem(t, s.call(http.MethodPost, "/return-authorizations/"+w.cancelID+"/labels", `{"packageNo":1}`, "label-4", http.StatusConflict), "illegal-transition")
 	w.events = append(w.events, "ReturnLabelIssued", "ReturnLabelIssued")
+	// What left this context on the three calls (two served, the outage): the
+	// return's destination named by its node id, and no postal prefix.
+	sent := w.labels.sent()
+	if len(sent) != 3 {
+		t.Fatalf("label requests = %+v, want the 3 of packages 1, 2 and 3", sent)
+	}
+	for _, call := range sent {
+		if call.NodeID == nil || *call.NodeID != "node-rc-1" || call.Prefix != nil {
+			t.Fatalf("label request for package %d names the destination by node %v and prefix %v, want node-rc-1 and no prefix",
+				call.PackageNo, call.NodeID, call.Prefix)
+		}
+		if want := fmt.Sprintf("%s:%d", w.mainID, call.PackageNo); call.Key != want {
+			t.Fatalf("Idempotency-Key = %q, want %q", call.Key, want)
+		}
+	}
 }
 
 // phasePublished asserts the exact CloudEvents of everything driven so far.
@@ -851,8 +820,8 @@ func TestRunOnRealPostgresAndKafka(t *testing.T) {
 	for _, topic := range []string{topicOrdering, topicTopology, topicSourcing, topicVendor, topicEvents} {
 		createTopic(t, brokers, topic)
 	}
-	w := &world{kc: kc, db: newPGView(t, dbURL), brokers: brokers}
 	stub := stubShippingLabels(t)
+	w := &world{kc: kc, db: newPGView(t, dbURL), brokers: brokers, labels: stub}
 	e := env{dbURL: dbURL, brokers: brokers, addr: freeAddr(t), labelsURL: stub.URL, logLevel: os.Getenv("E2E_LOG_LEVEL")}
 	s := e.start(t)
 	phaseSetup(t, w)
