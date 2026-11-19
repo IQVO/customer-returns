@@ -118,20 +118,20 @@ func seedThroughWriteUseCases(t *testing.T, url string) seeded {
 	}
 
 	must(svc.OnOrderPlaced(ctx, "ev-seed-1", requests.OrderPlaced{
-		OrderID: "ord-1", PlacedAt: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC),
+		OrderID: "ord-1", DestinationPostalPrefix: "22", PlacedAt: time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC),
 		Groups: []requests.PlacedGroup{{
-			GroupNo: 1, DestinationPostalPrefix: "22", WitnessNodeID: "node-fc-1",
+			GroupNo: 1, WitnessNodeID: "node-fc-1",
 			Lines: []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 2}},
 		}},
 	}))
 	must(svc.OnNoticeDecided(ctx, "ev-seed-2", requests.NoticeDecided{
 		OrderID: "ord-1", GroupNo: 1, Family: "GROUP_SHIPPED", Status: network.GroupShipped,
 	}))
-	must(svc.OnNodeFact(ctx, "ev-seed-3", "NodeRegistered", requests.NodeFact{
-		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "region-east", Lifecycle: network.NodePending,
+	must(svc.OnNodeRegistered(ctx, "ev-seed-3", "NodeRegistered", requests.NodeRegistered{
+		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "region-east",
 	}))
-	must(svc.OnNodeFact(ctx, "ev-seed-4", "NodeActivated", requests.NodeFact{
-		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "region-east", Lifecycle: network.NodeActive,
+	must(svc.OnNodeStatus(ctx, "ev-seed-4", "NodeActivated", requests.NodeStatus{
+		NodeID: "node-rc-1", Lifecycle: network.NodeActive, At: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC),
 	}))
 	must(svc.OnPrefixFact(ctx, "ev-seed-5", requests.PrefixFact{PostalPrefix: "22", RegionID: "region-east", AssignmentVersion: 1}))
 	must(svc.OnOriginFact(ctx, "ev-seed-6", "FulfillmentLocked", requests.OriginFact{

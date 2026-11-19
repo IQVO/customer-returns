@@ -26,3 +26,9 @@ The three consumers are ON, each under its stable group id:
   node-topology       group {{ .Values.config.nodeConsumerGroup }}
   offer-availability  group {{ .Values.config.catalogConsumerGroup }} (packaging)
   vendor-connectivity group {{ .Values.config.receiptConsumerGroup }} (receipts)
+{{- if .Values.analytics.enabled }}
+
+Analytics read side (ADR 0012): {{ include "customer-returns.projectorFullname" . }} projects
+retailnetwork.customer-returns.events (group {{ .Values.analytics.projector.consumerGroup }}) into the
+analytical database; {{ include "customer-returns.reportsFullname" . }} serves GET /reports/... read-only.
+{{- end }}

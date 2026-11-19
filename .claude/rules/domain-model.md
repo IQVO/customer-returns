@@ -66,13 +66,15 @@ One method of `Service` per command and query; commands run in ONE `ports.UnitOf
 - Authorize (`authorize.go`): `AuthorizeReturn` - checks the group SHIPPED/DELIVERED,
   resolves lines + prices + ownerRefs, decides the disposition, saves, publishes.
 - Labels (`labels.go`): `IssueLabel` - the ONE in-org HTTP call (ADR 0005) OUTSIDE the unit
-  of work, then one atomic link+append; tolerant `422 label-unavailable`.
+  of work, then one atomic link+append; tolerant `422 label-unavailable`. The request names
+  the destination by `a.DestinationNodeID()`; this context never reads, stores or derives a
+  postal code or prefix for a node, and the label does not read the OrderGroupView.
 - Queries + cancel (`queries.go`): `GetReturnAuthorization`, `ListReturnAuthorizations`
   (keyset), `CancelReturn`, the lazy expiry.
 - Outcomes (`outcome.go`): `OnOutcomeSubmitted` - first fit completes, unexpected lines
   stay facts, unknown/closed is recorded and acknowledged.
 - Consumer policies (`consumers.go`): `OnOrderPlaced`, `OnNoticeDecided` (order-tolerant),
-  `OnNodeFact`, `OnPrefixFact`, `OnOriginFact`.
+  `OnNodeRegistered` (type, region), `OnNodeStatus` (lifecycle only), `OnPrefixFact`, `OnOriginFact`.
 - Ports (`internal/application/ports/ports.go`) are interfaces only; the memory test
   doubles in `internal/adapters/outbound/memory` back the unit tests and the godog
   scenarios, the Postgres adapters are proven by

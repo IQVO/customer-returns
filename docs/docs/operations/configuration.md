@@ -31,9 +31,11 @@ Composition root of the REST API, the three Kafka consumers, the outbox relay an
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct (non-pooled) DSN used only for the boot migrations: golang-migrate holds a session advisory lock that does not survive a transaction-pooling proxy. An empty value falls back to `DATABASE_URL`. |
 | `KAFKA_BROKERS` | none | **yes** | Comma-separated broker list (entries trimmed, blanks dropped). Used by the relay sink, the three consumers and the `/readyz` metadata check. Missing = boot error `KAFKA_BROKERS is required`. |
 | `EVENT_PUBLISHER` | `kafka` | no | Only `kafka` (or empty) is accepted. `log` is a boot error (`EVENT_PUBLISHER=log is not supported`), any other value is a boot error. The variable stays because deployment manifests set it. |
-| `NODE_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the node-topology consumer. Missing = boot error naming the variable. |
-| `CATALOG_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the offer-availability (packaging) consumer. |
-| `RECEIPT_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the vendor-connectivity (receipts) consumer. |
+| `ORDER_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the customer-ordering consumer. Missing = boot error naming the variable. |
+| `TOPOLOGY_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the node-topology consumer. A group with no committed offset reads the topic from its earliest offset ([Runbook](/docs/operations/runbook#rebuilding-a-read-model-from-its-topic)). |
+| `SOURCING_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the order-sourcing consumer. |
+| `VENDOR_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the vendor-connectivity (return outcomes) consumer. |
+| `SHIPPING_LABELS_URL` | empty | no | Base URL of the shipping context's reverse-label route (ADR 0005). Empty keeps the label client off: a label request answers `422 label-unavailable`. Not to be set before the checklist of the [Runbook](/docs/operations/runbook#before-the-reverse-label-client-is-enabled) holds. |
 | `SSCC_COMPANY_PREFIX` | none | **yes** | The network's GS1 company prefix, 6 to 11 digits. Missing or invalid = boot error. SSCCs issued by the network are built from it. |
 | `SSCC_EXTENSION_DIGIT` | `0` | no | Extension digit of issued SSCCs, one digit 0..9. A non-numeric value or one outside 0..9 is a boot error. |
 | `OUTBOX_RELAY_INTERVAL` | `1s` | no | Pause between relay passes that did not fill a batch. A Go duration (`500ms`, `2s`) or plain seconds (`2`, `0.5`). Unparsable or non-positive values log a WARN and use the default. |
@@ -77,6 +79,37 @@ Read-only A2A agent, JSON-RPC 2.0 over HTTP (`cmd/a2a/main.go`, `cmd/a2a/telemet
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. |
 | `SERVICE_VERSION` | `dev` | no | `service.version`; also logged on the `a2a server starting` line. |
 | `ENVIRONMENT` | `local` in telemetry, `dev` on the boot log line | no | `deployment.environment.name`. |
+
+## `cmd/projector` (analytics projector, ADR 0012)
+
+Optional (chart `analytics.enabled`, default off). Writes ONLY the separate analytical database; never opens the OLTP
+database. Reads `retailnetwork.customer-returns.events` (its own topic), dead-letters poison to
+`retailnetwork.customer-returns.analytics.dlq`. Serves `/healthz` and `/readyz` on the admin port.
+
+| Variable | Default | Required? | Meaning | Chart value |
+| --- | --- | --- | --- | --- |
+| `ANALYTICS_DATABASE_URL` | none | **yes** | Direct DSN of the analytical database (read-write; runs the embedded analytical migrations). | `analytics.database.projectorUrl` or `analytics.database.existingSecret` |
+| `KAFKA_BROKERS` | none | **yes** | Comma-separated brokers. | `kafka.brokers` |
+| `ANALYTICS_CONSUMER_GROUP` | `customer-returns-analytics` | no | The projector's fixed consumer group. | `analytics.projector.consumerGroup` |
+| `ADMIN_ADDR` | `:8091` | no | `/healthz` and `/readyz` listen address. | `analytics.projector.adminAddr` |
+| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`/`warning`, `error`. | `analytics.logLevel` |
+| `OTEL_SERVICE_NAME` | `customer-returns-projector` | no | `service.name`. | `otel.serviceName` + `-projector` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. | `otel.endpoint` |
+| `SERVICE_VERSION`, `ENVIRONMENT` | `dev`, `local` | no | `service.version`, `deployment.environment.name`. | image tag, `environment` |
+
+## `cmd/reports` (read-only analytics reports, ADR 0012)
+
+Optional (chart `analytics.enabled`, default off). `GET /reports/returns-performance`, `/reports/freshness`,
+`/healthz`, `/readyz` over a read-only pool (15 s statement timeout). No Kafka, no OLTP database, no auth.
+
+| Variable | Default | Required? | Meaning | Chart value |
+| --- | --- | --- | --- | --- |
+| `ANALYTICS_READER_DATABASE_URL` | value of `ANALYTICS_DATABASE_URL` | **yes** (one of the two) | DSN of a read-only role on the analytical database. | `analytics.database.reportsUrl` (falls back to `projectorUrl`) |
+| `ANALYTICS_DATABASE_URL` | none | no | Single-role local fallback; the chart never renders it for the reports pod. | not rendered |
+| `HTTP_ADDR` | `:8092` | no | Listen address. | `analytics.reports.httpAddr` |
+| `LOG_LEVEL` | `info` | no | As in `cmd/projector`. | `analytics.logLevel` |
+| `OTEL_SERVICE_NAME` | `customer-returns-reports` | no | `service.name`. | `otel.serviceName` + `-reports` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION`, `ENVIRONMENT` | as above | no | Telemetry labels. | as above |
 
 ## Compiled-in settings (not configurable)
 

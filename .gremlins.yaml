@@ -27,9 +27,13 @@ unleash:
     # differs. See HARNESS.md's mutation-testing section for the
     # tagless-switch-under-reports pitfall before assuming a low number
     # means missing tests.
-    # Measured 2026-10-24, `gremlins unleash` per package: inboundplan, network, scorecard, seller and shared
-    # report efficacy 100.00% and mutator coverage 100.00%; inboundshipment reports 99.23% and
-    # 100.00% (one surviving mutant, CONDITIONALS_BOUNDARY at receipt.go:195, is equivalent:
-    # the receipt normalisation already drops zero-quantity items, so `> 0` and `>= 0` behave alike).
-    efficacy: "99"
-    mutant-coverage: "99"
+    # Measured 2026-11-15, `gremlins unleash` per package (the CI mutation-fast loop):
+    # network 2/2 killed, efficacy 100.00%, mutator coverage 100.00%; shared 40/40 killed, 100.00% / 100.00%;
+    # returnauthorization 88 killed, 0 lived, 2 not covered: efficacy 100.00%, mutator coverage 97.78%
+    # (the two NOT COVERED mutants are the ARITHMETIC_BASE operators of the `const ReturnAuthorizationTTL =
+    # 30 * 24 * time.Hour` declaration, a coverage-profile artefact, see MUTATION.md), so mutant-coverage
+    # sits at 97, strictly below the 97.78% that package measures.
+    # Plain numbers on purpose: gremlins v0.6.0 reads these with a float type assertion, a quoted string
+    # ("99") is read as 0 and the gate never fails.
+    efficacy: 99
+    mutant-coverage: 97

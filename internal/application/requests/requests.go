@@ -48,19 +48,21 @@ type CancelReturn struct {
 	AuthorizationID returnauthorization.ID
 }
 
-// OrderPlaced is the parsed CustomerOrderPlaced.
+// OrderPlaced is the parsed CustomerOrderPlaced. The destination postal prefix
+// is a fact of the ORDER (customer-ordering publishes one per order, never one
+// per group): every group of the order shares it.
 type OrderPlaced struct {
-	OrderID  string
-	PlacedAt time.Time
-	Groups   []PlacedGroup
+	OrderID                 string
+	DestinationPostalPrefix string
+	PlacedAt                time.Time
+	Groups                  []PlacedGroup
 }
 
 // PlacedGroup is one group of an OrderPlaced.
 type PlacedGroup struct {
-	GroupNo                 int
-	DestinationPostalPrefix string
-	WitnessNodeID           string
-	Lines                   []network.GroupLine
+	GroupNo       int
+	WitnessNodeID string
+	Lines         []network.GroupLine
 }
 
 // NoticeDecided is the parsed ShopperNoticeDecided (terminal families only
@@ -72,12 +74,22 @@ type NoticeDecided struct {
 	Status  network.GroupStatus
 }
 
-// NodeFact is the parsed node-topology node event.
-type NodeFact struct {
+// NodeRegistered is the parsed node-topology NodeRegistered: the one node fact
+// that carries the node's descriptive attributes.
+type NodeRegistered struct {
+	NodeID   string
+	NodeType network.NodeType
+	RegionID string
+}
+
+// NodeStatus is the parsed NodeActivated, NodeSuspended or NodeRetired. The
+// producer publishes only the node id (plus the instant) on these three, so
+// the fact names a lifecycle and nothing else. At is the CloudEvents time of
+// the fact, the instant the status changed.
+type NodeStatus struct {
 	NodeID    string
-	NodeType  network.NodeType
-	RegionID  string
 	Lifecycle network.NodeLifecycle
+	At        time.Time
 }
 
 // PrefixFact is the parsed ServiceAreaAssigned.
@@ -87,7 +99,9 @@ type PrefixFact struct {
 	AssignmentVersion int64
 }
 
-// OriginFact is the parsed FulfillmentReleasedToNode / FulfillmentLocked.
+// OriginFact is what a FulfillmentReleasedToNode / FulfillmentLocked says about
+// ONE order group. A merged release (one purchase order for several groups)
+// parses into one OriginFact per member group.
 type OriginFact struct {
 	OrderID string
 	GroupNo int
@@ -112,13 +126,16 @@ type OutcomeLine struct {
 	QtyUnsellable  int
 }
 
-// IssueReturnLabel is the request body of the shipping context's future
-// POST /return-labels route (the ONE in-org call this context makes, ADR 0005).
+// IssueReturnLabel is the request of the shipping context's POST /return-labels
+// route (the ONE in-org call this context makes, ADR 0005). The return's
+// destination is named by its node id: this context holds no address data of
+// a node, the label owner derives the label's destination prefix from its own
+// node view (ADR 0005, addendum 2026-11-18).
 type IssueReturnLabel struct {
-	ReturnAuthorizationID   returnauthorization.ID
-	OrderID                 string
-	PackageNo               int
-	DestinationPostalPrefix string
+	ReturnAuthorizationID returnauthorization.ID
+	OrderID               string
+	PackageNo             int
+	DestinationNodeID     string
 }
 
 // ReturnLabel is the reverse label the shipping context issued.

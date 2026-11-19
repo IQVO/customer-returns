@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/IQVO/customer-returns/internal/adapters/outbound/memory"
+	"github.com/IQVO/customer-returns/internal/application/ports"
 	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/application/usecases"
 	"github.com/IQVO/customer-returns/internal/application/views"
@@ -42,6 +43,7 @@ func (m *countingMetrics) OutcomeApplied(_ context.Context, unexpected int) {
 
 type fixture struct {
 	svc     *usecases.Service
+	store   *memory.Store
 	metrics *countingMetrics
 	clock   *memory.Clock
 	seeded  map[string]bool
@@ -49,10 +51,17 @@ type fixture struct {
 
 func price(c int64) *int64 { return &c }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T) *fixture { return newFixtureWithLabels(t, nil) }
+
+// newFixtureWithLabels builds the fixture over the given label port (nil: the
+// memory double, which records every call).
+func newFixtureWithLabels(t *testing.T, issuer ports.LabelIssuer) *fixture {
 	_ = t
 	t.Helper()
 	store := memory.NewStore()
+	if issuer == nil {
+		issuer = memory.NewLabelIssuer(store)
+	}
 	clock := &memory.Clock{}
 	clock.Set(t0)
 	metrics := newCountingMetrics()
@@ -62,23 +71,28 @@ func newFixture(t *testing.T) *fixture {
 		Groups:         memory.NewGroupViewRepository(store),
 		Network:        memory.NewNetworkViewRepository(store),
 		Outcomes:       memory.NewOutcomeFacts(store),
-		Labels:         memory.NewLabelIssuer(store),
+		Labels:         issuer,
 		Outbox:         memory.NewOutbox(store),
 		Inbox:          memory.NewInbox(store),
 		Metrics:        metrics,
 		Clock:          clock, IDs: memory.NewSequentialIDs(),
 	}
-	return &fixture{svc: usecases.New(deps, usecases.Config{}), metrics: metrics, clock: clock}
+	return &fixture{svc: usecases.New(deps, usecases.Config{}), store: store, metrics: metrics, clock: clock}
 }
 
 // seedTopology feeds the region's returns centre and the prefix assignment.
 func (f *fixture) seedTopology(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	if err := f.svc.OnNodeFact(ctx, "evt-nf-1", "NodeRegistered", requests.NodeFact{
-		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1", Lifecycle: network.NodeActive,
+	if err := f.svc.OnNodeRegistered(ctx, "evt-nf-1", "NodeRegistered", requests.NodeRegistered{
+		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1",
 	}); err != nil {
-		t.Fatalf("OnNodeFact: %v", err)
+		t.Fatalf("OnNodeRegistered: %v", err)
+	}
+	if err := f.svc.OnNodeStatus(ctx, "evt-nf-2", "NodeActivated", requests.NodeStatus{
+		NodeID: "node-rc-1", Lifecycle: network.NodeActive, At: t0,
+	}); err != nil {
+		t.Fatalf("OnNodeStatus: %v", err)
 	}
 	if err := f.svc.OnPrefixFact(ctx, "evt-pf-1", requests.PrefixFact{
 		PostalPrefix: "03", RegionID: "reg-1", AssignmentVersion: 1,
@@ -98,15 +112,14 @@ func (f *fixture) placeOrder(t *testing.T, orderID string) {
 		f.seeded["topo"] = true
 	}
 	err := f.svc.OnOrderPlaced(context.Background(), "evt-op-"+orderID, requests.OrderPlaced{
-		OrderID: orderID, PlacedAt: t0,
+		OrderID: orderID, DestinationPostalPrefix: "03", PlacedAt: t0,
 		Groups: []requests.PlacedGroup{{
-			GroupNo: 1, DestinationPostalPrefix: "03", WitnessNodeID: "node-fc-1",
+			GroupNo: 1, WitnessNodeID: "node-fc-1",
 			Lines: []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 2}},
 		}, {
-			GroupNo:                 2,
-			DestinationPostalPrefix: "03",
-			WitnessNodeID:           "node-fc-1",
-			Lines:                   []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-200", Quantity: 1}},
+			GroupNo:       2,
+			WitnessNodeID: "node-fc-1",
+			Lines:         []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-200", Quantity: 1}},
 		}},
 	})
 	if err != nil {
@@ -274,9 +287,9 @@ func TestOutcomeConsumerPaths(t *testing.T) {
 		t.Fatalf("early notice: %v", err)
 	}
 	if err := f.svc.OnOrderPlaced(context.Background(), "evt-op-late", requests.OrderPlaced{
-		OrderID: "ord-late", PlacedAt: t0,
+		OrderID: "ord-late", DestinationPostalPrefix: "03", PlacedAt: t0,
 		Groups: []requests.PlacedGroup{{
-			GroupNo: 1, DestinationPostalPrefix: "03", WitnessNodeID: "node-fc-1",
+			GroupNo: 1, WitnessNodeID: "node-fc-1",
 			Lines: []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 1}},
 		}},
 	}); err != nil {
@@ -309,10 +322,15 @@ func TestNilMetricsServiceStillServes(t *testing.T) {
 		Inbox:          memory.NewInbox(store),
 		Clock:          clock, IDs: memory.NewSequentialIDs(),
 	}, usecases.Config{})
-	if err := svc.OnNodeFact(context.Background(), "evt-nf-9", "NodeRegistered", requests.NodeFact{
-		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1", Lifecycle: network.NodeActive,
+	if err := svc.OnNodeRegistered(context.Background(), "evt-nf-9", "NodeRegistered", requests.NodeRegistered{
+		NodeID: "node-rc-1", NodeType: network.TypeReturnsCenter, RegionID: "reg-1",
 	}); err != nil {
-		t.Fatalf("OnNodeFact: %v", err)
+		t.Fatalf("OnNodeRegistered: %v", err)
+	}
+	if err := svc.OnNodeStatus(context.Background(), "evt-nf-10", "NodeActivated", requests.NodeStatus{
+		NodeID: "node-rc-1", Lifecycle: network.NodeActive, At: t0,
+	}); err != nil {
+		t.Fatalf("OnNodeStatus: %v", err)
 	}
 	if err := svc.OnPrefixFact(context.Background(), "evt-pf-9", requests.PrefixFact{
 		PostalPrefix: "03", RegionID: "reg-1", AssignmentVersion: 1,
@@ -320,9 +338,9 @@ func TestNilMetricsServiceStillServes(t *testing.T) {
 		t.Fatalf("OnPrefixFact: %v", err)
 	}
 	if err := svc.OnOrderPlaced(context.Background(), "evt-op-9", requests.OrderPlaced{
-		OrderID: "ord-9", PlacedAt: t0,
+		OrderID: "ord-9", DestinationPostalPrefix: "03", PlacedAt: t0,
 		Groups: []requests.PlacedGroup{{
-			GroupNo: 1, DestinationPostalPrefix: "03", WitnessNodeID: "node-fc-1",
+			GroupNo: 1, WitnessNodeID: "node-fc-1",
 			Lines: []network.GroupLine{{LineNo: 1, CatalogItemID: "sku-100", Quantity: 1}},
 		}},
 	}); err != nil {

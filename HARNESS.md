@@ -49,7 +49,7 @@ three regulation categories: **maintainability**, **architecture fitness**,
 | `trivy-scan` | maintainability | computational | PR (targeting main) | yes (CRITICAL/HIGH w/ fix) | minutes |
 | `CodeQL` | maintainability | computational | PR, schedule | yes (conversation-resolution) | minutes |
 | `Scorecard` | maintainability | computational | schedule | no | minutes |
-| `drift` (deadcode, `go mod tidy -diff`, knip, coverage-quality) | maintainability | computational | weekly schedule | **no — advisory** | minutes |
+| `drift` (deadcode, `go mod tidy -diff`, coverage-quality; no knip: no `web/`) | maintainability | computational | weekly schedule | **no — advisory** | minutes |
 | `/code-review`, `/architecture-review`, `/domain-review` | architecture fitness / behaviour | **inferential** | invoked by hand (local-only, per user decision 2026-09-13) | no | LLM cost per invocation |
 
 **New sensors default to advisory for ~2 weeks, then auto-promote to

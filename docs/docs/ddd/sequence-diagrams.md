@@ -10,137 +10,156 @@ description: "One sequence per key Customer Returns use case, from inbound adapt
 
 Shared conventions, from the code:
 
-- Every use case runs inside `Service.atomically`, one Postgres transaction (`UnitOfWork`). The repository saves with
-  `WHERE version = :expected`; a lost race is `concurrent-update` (409).
-- Outbox rows are written in the same transaction as the aggregate (`EventOutbox.Append`); the in-process relay produces
-  them to Kafka later (`retailnetwork.customer-returns.events`; the six analytics-only events to
-  `retailnetwork.customer-returns.analytics`).
-- Write routes pass the HTTP idempotency middleware first (`Idempotency-Key`); it is omitted from the diagrams.
+- Every command use case runs inside `Service.atomically`, one Postgres transaction (`UnitOfWork`). The repository
+  saves with an optimistic `version`; a lost race is `concurrent-update` (409).
+- Outbox rows are written in the same transaction as the aggregate (`EventOutbox.Append`); the in-process relay
+  publishes them later to `retailnetwork.customer-returns.events`.
+- Write routes pass the HTTP idempotency middleware first (`Idempotency-Key`, global, `409` on reuse); it is omitted
+  from the diagrams.
 - Consumers claim the CloudEvents `id` in `processed_events` in the same transaction as their effect.
+- Every command touch re-checks expiry first (`expireLazily`): past `expiresAt` the authorization is cancelled with
+  `EXPIRED` and the call answers `authorization-expired`; a pure read reports the remaining state without cancelling.
 - Event names are short; full types are on the [Event catalogue](/docs/api-reference/events).
 
-## 1. AddCarton
+## 1. AuthorizeReturn
 
 ```mermaid
 %%{init: {"sequence": {"wrap": true, "width": 120, "actorMargin": 24, "messageMargin": 28, "boxMargin": 6, "noteMargin": 6, "mirrorActors": false}}}%%
 sequenceDiagram
     autonumber
-    participant H as http POST cartons
-    participant UC as AddCarton
+    participant H as http POST authorizations
+    participant UC as AuthorizeReturn
     participant V as read models
-    participant I as SSCC issuer
-    participant A as InboundShipment
-    participant R as ShipmentRepo
-    H->>UC: AddCarton(shipmentId, carton)
-    UC->>R: Get(shipmentId), plan and sibling shipments
-    UC->>V: node limits and CASE levels of the items
-    opt no sscc supplied
-        UC->>I: Next()
-    end
-    UC->>A: AddCarton(carton, rules)
-    alt rule broken
-        A-->>UC: case-pack-not-uniform, case-qty-mismatches-gtin,<br/>carton-overweight, carton-oversize, invalid-sscc
-        UC-->>H: 4xx problem+json
-    else accepted
-        A-->>UC: carton
-        UC->>R: Save(expected version)
-        alt supplied SSCC already registered
-            R-->>UC: sscc-not-unique
-            UC-->>H: 409 problem+json
-        else saved
-            UC-->>H: 201 carton, ssccIssued and label
+    participant D as Decide
+    participant A as ReturnAuthorization
+    participant R as AuthRepo
+    participant OB as Outbox
+    H->>UC: AuthorizeReturn(orderId, groupNo, lines, reason)
+    UC->>V: Groups.Group(orderId, groupNo)
+    alt unknown or not SHIPPED or DELIVERED
+        UC-->>H: 422 group-not-shipped
+    else authorizable
+        UC->>V: resolveLines against the placed group
+        UC->>V: destinations (returns centre, origin)
+        UC->>D: Decide(lines with prices, method)
+        alt neither destination and KEEP does not apply
+            D-->>UC: ErrNoReturnDestination
+            UC-->>H: 422 no-return-destination
+        else decided
+            UC->>A: New(Keep or physical)
+            A-->>UC: AUTHORIZED or CLOSED_KEEP
+            UC->>R: Save
+            UC->>OB: Append(ReturnAuthorized)
+            UC-->>H: 201 authorization
         end
     end
 ```
 
-Source: `internal/application/usecases/shipments.go` (`AddCarton`, `addWithSSCC`). An issued SSCC that collides is
-re-issued up to `SsccIssueAttempts` times; a supplied one that collides is the seller's error. No event is written.
+Source: `internal/application/usecases/authorize.go`, `internal/domain/returnauthorization/decide.go`. The disposition is
+decided here, never chosen by the caller; KEEP closes the aggregate at once.
 
-## 2. ShipInboundShipment
+## 2. IssueLabel
 
 ```mermaid
 %%{init: {"sequence": {"wrap": true, "width": 120, "actorMargin": 24, "messageMargin": 28, "boxMargin": 6, "noteMargin": 6, "mirrorActors": false}}}%%
 sequenceDiagram
     autonumber
-    participant H as http POST ship
-    participant UC as ShipInboundShipment
-    participant A as InboundShipment
-    participant R as ShipmentRepo
+    participant H as http POST labels
+    participant UC as IssueLabel
+    participant L as LabelIssuer
+    participant A as ReturnAuthorization
+    participant R as AuthRepo
     participant OB as Outbox
-    participant K as Relay + Kafka
-    H->>UC: ShipInboundShipment(shipmentId)
-    UC->>R: Get(shipmentId)
-    UC->>UC: seller ACTIVE and node able to receive
-    UC->>A: Ship(now)
-    alt not LABELLED
-        A-->>UC: shipment-not-labelled
-        UC-->>H: 409 shipment-not-labelled
-    else LABELLED
-        A-->>UC: SHIPPED and InboundShipmentShipped
-        UC->>R: Save(expected version)
-        UC->>OB: Append(event), same transaction
-        UC-->>H: 200 shipment
-        OB->>K: relay publishes later
+    H->>UC: IssueLabel(authorizationId, packageNo)
+    UC->>A: Get, expiry checked
+    UC->>A: open and not KEEP?
+    UC->>L: POST /return-labels with destinationNodeId, outside the unit of work
+    alt route off or non-201
+        L-->>UC: ErrLabelUnavailable
+        UC-->>H: 422 label-unavailable, nothing else happens
+    else 201 with tracking number
+        UC->>A: LinkLabel(trackingNumber)
+        alt already linked or 5 linked
+            A-->>UC: Illegal or Invalid
+            UC-->>H: 409 or 422
+        else linked
+            UC->>R: Save(expected version), ONE transaction
+            UC->>OB: Append(ReturnLabelIssued)
+            UC-->>H: 200 authorization
+        end
     end
 ```
 
-Source: `shipments.go` (`ShipInboundShipment`). The outcome is counted on `customer_returns.shipment.shipped`
-(`outcome` `shipped` or `rejected`, `reason` the problem slug); see [Observability](/docs/operations/observability).
+Source: `internal/application/usecases/labels.go`, `internal/adapters/outbound/labels`
+([ADR 0005](/docs/adr/0005-the-reverse-label-route)). The request names the return's destination by the authorization's
+destination node id and carries no postal prefix; a node the provider does not know yet is refused there
+(`409 destination-prefix-unavailable`) and answered here as the same tolerant `422 label-unavailable`. The client sends
+`Idempotency-Key: <authorizationId>:<packageNo>`; a retry is a replay, and a failure between the call and the commit is
+healed by the shipping context's dedupe.
 
-## 3. ApplyInboundReceipt (consumer)
+## 3. OnOutcomeSubmitted (consumer)
 
 ```mermaid
 %%{init: {"sequence": {"wrap": true, "width": 120, "actorMargin": 24, "messageMargin": 28, "boxMargin": 6, "noteMargin": 6, "mirrorActors": false}}}%%
 sequenceDiagram
     autonumber
     participant K as Kafka
-    participant C as consumer
+    participant C as vendor consumer
     participant IB as processed_events
-    participant UC as ApplyInboundReceipt
-    participant A as InboundShipment
+    participant UC as OnOutcomeSubmitted
+    participant A as ReturnAuthorization
+    participant F as Outcome facts
     participant OB as Outbox
-    K->>C: InboundReceiptSubmitted
+    K->>C: VendorReturnOutcomeSubmitted
     C->>IB: claim event id
     alt already processed
         IB-->>C: duplicate
         C-->>K: commit and skip
     else new
-        C->>UC: Execute(receipt)
-        UC->>A: RecordReceipt(receipt)
-        A-->>UC: statuses, discrepancies,<br/>RECEIVING or closed
-        UC->>OB: discrepancy and violation events
-        UC->>OB: InboundShipmentReceived when closed
-        C-->>K: commit after the transaction
+        C->>UC: Execute(outcome)
+        alt unknown or closed authorization
+            UC->>F: record, unexpected lines flagged
+            C-->>K: commit, acknowledged
+        else open and fits
+            UC->>A: ApplyOutcome(lines, nodeId)
+            A-->>UC: RECEIVED and ReturnCompleted
+            UC->>F: record the fact
+            UC->>OB: Append(ReturnCompleted)
+            C-->>K: commit after the transaction
+        end
     end
 ```
 
-Source: `internal/adapters/inbound/kafka/consumer.go`, `internal/application/usecases/consumers.go`,
-`internal/domain/inboundshipment/receipt.go`. A receipt for a shipment that is already closed is a no-op; the scorecard
-facts are written in the same transaction as the receipt.
+Source: `internal/adapters/inbound/kafka/consumer.go`, `internal/application/usecases/outcome.go`. The first outcome
+that fits completes the authorization (ADR 0002 A6); lines beyond the authorization are recorded `unexpected` and never
+published (A7). The same inbox pattern runs in the three read-model consumers.
 
-## 4. Confirm a plan
+## 4. CancelReturn and the lazy expiry
 
 ```mermaid
 %%{init: {"sequence": {"wrap": true, "width": 120, "actorMargin": 24, "messageMargin": 28, "boxMargin": 6, "noteMargin": 6, "mirrorActors": false}}}%%
 sequenceDiagram
     autonumber
-    participant H as http POST confirm
-    participant UC as ConfirmInboundPlan
-    participant S as SellerRepo
-    participant V as NodeViews
-    participant P as InboundPlan
-    participant R as PlanRepo
+    participant H as http POST cancellations
+    participant UC as CancelReturn
+    participant A as ReturnAuthorization
+    participant R as AuthRepo
     participant OB as Outbox
-    H->>UC: ConfirmInboundPlan(planId)
-    UC->>R: Get(planId)
-    UC->>S: seller ACTIVE?
-    UC->>V: node able to receive?
-    UC->>P: Confirm(now)
-    P-->>UC: CONFIRMED and InboundPlanConfirmed
-    UC->>R: Save(expected version)
-    UC->>OB: Append(event)
-    UC-->>H: 200 plan
+    H->>UC: CancelReturn(authorizationId)
+    UC->>A: Get, expiry checked first
+    alt expired on this touch
+        UC->>OB: Append(ReturnCancelled EXPIRED)
+        UC-->>H: 422 authorization-expired
+    else still AUTHORIZED
+        UC->>A: Cancel(SHOPPER_REQUESTED)
+        A-->>UC: CANCELLED and ReturnCancelled
+        UC->>R: Save(expected version)
+        UC->>OB: Append(event)
+        UC-->>H: 200 authorization
+    else IN_TRANSIT or later
+        UC-->>H: 409 illegal-transition
+    end
 ```
 
-Source: `internal/application/usecases/plans.go` (`ConfirmInboundPlan`, `requireNode`). A refusal maps to
-`seller-suspended`, `node-cannot-receive` or `illegal-transition`.
+Source: `internal/application/usecases/queries.go` (`CancelReturn`, `expireLazily`). There is no sweeper: the lazy
+expiry is the only other cancellation cause in v1 (ADR 0002 A4).

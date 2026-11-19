@@ -12,63 +12,68 @@ Following the ddd-crew [Bounded Context Canvas](https://github.com/ddd-crew/boun
 
 ```mermaid
 flowchart TB
-    SEL["seller / portal"]
+    SH["shopper / storefront"]
     AGT["agents"]
+    CO["customer-ordering"]
     NT["node-topology"]
-    OA["offer-availability"]
-    SI["customer-returns"]
+    OS["order-sourcing"]
+    CR["customer-returns"]
     VC["vendor-connectivity"]
-    NP["node-performance"]
-    SEL -->|"REST plans, shipments,<br/>cartons, ship"| SI
-    AGT -->|"MCP and A2A reads"| SI
-    NT -->|"evt NodeInboundView"| SI
-    OA -->|"evt CatalogPackagingView"| SI
-    VC -->|"evt InboundReceiptSubmitted"| SI
-    SI -->|"evt InboundShipmentLabelled,<br/>Shipped, Received"| VC
-    SI -->|"evt InboundShipmentShipped"| NP
+    OA["offer-availability"]
+    ST["shipping-and-tracking"]
+    SH -->|"REST authorize, label,<br/>cancel, reads"| CR
+    AGT -->|"MCP and A2A reads"| CR
+    CO -->|"evt OrderGroupView"| CR
+    NT -->|"evt ReturnsNetworkView"| CR
+    OS -->|"evt group origins"| CR
+    VC -->|"evt VendorReturnOutcomeSubmitted"| CR
+    CR -->|"evt the four return events"| VC
+    CR -->|"evt ReturnCompleted"| OA
+    CR -->|"REST POST /return-labels"| ST
 ```
 
-Source: `internal/adapters/inbound/{http,kafka,mcp,a2a}`, `internal/adapters/outbound/kafka/encoder.go`,
+Source: `internal/adapters/inbound/{http,kafka,mcp,a2a}`, `internal/adapters/outbound/{kafka,labels}`,
 `apis/asyncapi.yaml`.
 
 ## 1. Name
 
-Customer Returns (`customer-returns`, `SI`), tier `partner`, Supporting.
+Customer Returns (`customer-returns`, `CR`), tier `commerce`, Supporting.
 
 ## 2. Purpose
 
-Let a seller plan, pack, label and ship stock to a vendor node, and close each shipment from the vendor's carton-level
-receipt, with eaches as the ledger unit and the seller as owner of the stock.
+After a customer order group has shipped or been delivered, let its shopper return it: decide here what happens to the
+goods (returnless KEEP, the region's returns centre, or the node that fulfilled the order), issue the reverse label
+through the shipping context, and close the loop on the returns centre's graded outcome — holding no money, no address
+and no free text ([ADR 0001](/docs/adr/0001-customer-returns-bounded-context)).
 
 ## 3. Strategic classification
 
 | Axis | Value |
 | --- | --- |
 | Domain | Supporting |
-| Business model | Supply enabler |
+| Business model | Service enabler |
 | Evolution | Custom-built |
 
 See [Subdomain classification](/docs/ddd/subdomain-classification).
 
 ## 4. Domain roles
 
-Execution (inbound plans and shipments), Gateway for sellers (Open Host Service), Enforcer (carton and label compliance
-at pack time; the receipt side only records).
+Decision maker (the disposition is decided here, never by the caller), Execution (authorization, label, cancellation,
+outcome), Gateway for shoppers (Open Host Service behind the storefront).
 
 ## 5. Inbound communication
 
 | Sender | Type | Message | Channel | Relationship |
 | --- | --- | --- | --- | --- |
-| seller / seller portal | command | `OnboardSeller` | REST `POST /sellers` | OHS |
-| network partner managers | command | `SuspendSeller`, `ReinstateSeller` | REST `POST /sellers/{sellerId}/suspensions`, `POST /sellers/{sellerId}/reinstatements` | UI |
-| seller / seller portal | command | `CreateInboundPlan`, `ConfirmInboundPlan`, `CancelInboundPlan` | REST `POST /inbound-plans`, `POST /inbound-plans/{planId}/confirmations`, `POST /inbound-plans/{planId}/cancellations` | OHS |
-| seller / seller portal | command | `CreateInboundShipment`, `AddCarton`, `LabelShipment`, `ShipInboundShipment` | REST `POST /inbound-plans/{planId}/shipments`, `POST /inbound-shipments/{shipmentId}/cartons`, `POST /inbound-shipments/{shipmentId}/labels`, `POST /inbound-shipments/{shipmentId}/dispatches` | OHS |
-| seller / seller portal | query | `GetInboundPlan`, `GetInboundShipment`, `GetLabels` | REST `GET /inbound-plans/{planId}`, `GET /inbound-shipments/{shipmentId}`, `.../labels` | OHS |
-| seller / seller portal, network partner managers | query | `GetSellerScorecard` (informational) | REST `GET /sellers/{sellerId}/scorecard?window=7d` or `30d` | OHS |
-| agents | query | the four reads above | MCP `get_inbound_plan`, `get_inbound_shipment`, `get_shipment_labels`, `get_seller_scorecard`; A2A skills `seller_compliance`, `inbound_status` | read-only, unauthenticated |
-| `vendor-connectivity` | event | `InboundReceiptSubmitted` | Kafka `retailnetwork.vendor-connectivity.events` | Customer/Supplier |
-| `node-topology` | event | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | Kafka `retailnetwork.node-topology.events` | Conformist |
-| `offer-availability` | event | `CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` | Kafka `retailnetwork.offer-availability.events` | Conformist |
+| shopper / storefront | command | `AuthorizeReturn` | REST `POST /return-authorizations` | OHS |
+| shopper / storefront | command | `IssueLabel` | REST `POST /return-authorizations/{authorizationId}/labels` | OHS |
+| shopper / storefront | command | `CancelReturn` | REST `POST /return-authorizations/{authorizationId}/cancellations` | OHS |
+| shopper / storefront | query | `GetReturnAuthorization`, `ListReturnAuthorizations` | REST `GET /return-authorizations/{authorizationId}`, `GET /return-authorizations?orderId=` (keyset-paged) | OHS |
+| agents | query | the two reads above | MCP `get_return_authorization`, `list_return_authorizations`; A2A skill `get_return_authorization` | read-only, unauthenticated |
+| `customer-ordering` | event | `CustomerOrderPlaced`, `ShopperNoticeDecided` | Kafka `retailnetwork.customer-ordering.events` | Conformist |
+| `node-topology` | event | `NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `ServiceAreaAssigned` | Kafka `retailnetwork.node-topology.events` | Conformist |
+| `order-sourcing` | event | `FulfillmentReleasedToNode`, `FulfillmentLocked` | Kafka `retailnetwork.order-sourcing.events` | Conformist |
+| `vendor-connectivity` | event | `VendorReturnOutcomeSubmitted` | Kafka `retailnetwork.vendor-connectivity.events` | Customer/Supplier |
 
 All write routes take an `Idempotency-Key`. No authentication, as in every other context of the fleet.
 
@@ -76,13 +81,13 @@ All write routes take an `Idempotency-Key`. No authentication, as in every other
 
 | Message | Type | Consumers |
 | --- | --- | --- |
-| `SellerOnboarded`, `SellerSuspended`, `SellerReinstated` | event | analytics only |
-| `InboundPlanConfirmed` | event | analytics only |
-| `InboundShipmentLabelled`, `InboundShipmentReceived` | event | vendor-connectivity |
-| `InboundShipmentShipped` | event | vendor-connectivity, node-performance |
-| `InboundDiscrepancyRecorded`, `SellerComplianceViolationRecorded` | event | analytics only |
+| `ReturnAuthorized` | event | vendor-connectivity (opens the return advice) |
+| `ReturnLabelIssued` | event | vendor-connectivity |
+| `ReturnCompleted` | event | offer-availability (restocks listings), vendor-connectivity |
+| `ReturnCancelled` | event | vendor-connectivity |
 
-This context makes **no synchronous call** to any sibling.
+This context makes **exactly one synchronous call**: the shipping context's reverse-label route
+([ADR 0005](/docs/adr/0005-the-reverse-label-route)), config-gated by `SHIPPING_LABELS_URL` and tolerant when absent.
 
 ## 7. Ubiquitous language
 
@@ -91,30 +96,32 @@ See [Ubiquitous language](/docs/ddd/ubiquitous-language).
 ## 8. Business decisions
 
 See [Introduction](/docs/overview/introduction#business-rules-in-one-place) and [Use cases](/docs/ddd/use-cases). The
-rules as policies, named in the model: `SsccIssuance`, `NodeMustBeAbleToReceive`, `OwnerSegregation`,
-`ReceiveOnVendorReceipt`, `RecordDiscrepancies`. In code: `requireNode` and `Node.CanReceive` (node able to receive),
-`addWithSSCC` and `sscc.Issuer` (SSCC issuance), `ApplyInboundReceipt` and `Shipment.RecordReceipt` (receipt and
-discrepancies).
+rules as policies, named in the model: `Decide` (the pure disposition function: returnless threshold, returns-centre
+selection, origin fallback), `AuthorizeOnlyShippedGroups`, `LazyExpiry`, `FirstFittingOutcome`,
+`UnexpectedLinesStayFacts`. In code: `Decide` and `DecideInput` (`internal/domain/returnauthorization/decide.go`),
+`expireLazily` and `expireAndReject` (ADR 0002 A4), `commitOutcome` with `factOf` and `allUnexpected`
+(ADR 0002 A6 and A7).
 
 ## 9. Assumptions
 
-- A node's inbound limits and an item's packaging hierarchy reach this context as events before a seller plans against
-  them; a cold read model refuses (`node-cannot-receive`, `case-qty-mismatches-gtin`) rather than guesses.
-- The vendor receives the cartons and reports each SSCC it saw. An SSCC the vendor did not report is `MISSING` only when
-  a receipt says so.
+- The order group, network and origin facts arrive as events before the shopper authorizes against them; a lagging read
+  model refuses (`group-not-shipped`, `no-return-destination`) rather than guesses — the shopper retries with the same
+  `Idempotency-Key`.
+- Unit prices are the storefront's facts, stored for the decision and echoed to the caller, never published (the
+  no-money rule); an absent price makes KEEP impossible (`pricesAbsent`).
 - The assumptions the model left open are settled in [ADR 0002](/docs/adr/0002-aggregates-and-invariants) (its numbered
-  assumptions, for example A3 for repeated suspend, A5 for SSCC issuance, A8 for unmanifested cartons).
+  assumptions, for example A3 for repeated authorization, A4 for lazy expiry, A6 for the first-fit outcome, A7 for
+  unexpected lines).
 
 ## 10. Verification metrics
 
-Built: the Tier-2 counter `customer_returns.shipment.shipped` (attribute `outcome` `shipped` or `rejected`, `reason` the
-problem slug; [ADR 0008](/docs/adr/0008-fleet-observability-standard)) and the per-seller scorecard
-(`receiptAccuracyRate`, `discrepancyRatePerShipment`, `discrepanciesByKind`, `complianceViolations`, `complianceTier`;
-[ADR 0005](/docs/adr/0005-the-reverse-label-route)). Not built: share of cartons whose SSCC was network-issued; time
-from `SHIPPED` to the first receipt; share of case-packed cartons refused at `AddCarton`.
+Built: the Tier-2 counter `customer_returns.return.authorized` ([ADR 0008](/docs/adr/0008-fleet-observability-standard))
+and the fleet's standard RED metrics on every route. Not built: the share of KEEP dispositions, the `label-unavailable`
+rate while the reverse-label route is off, expiries per day, and the time from `ReturnAuthorized` to `ReturnCompleted`.
 
 ## 11. Open questions
 
-From the network gap register (G41 to G55, in IQVO/warehouse-docs): commingling, compliance scoring beyond the
-informational scorecard (nothing acts on its tier), inbound freight, EDI adapters, FEFO, who creates owner-scoped
-listings from received stock, pallets and inner packs.
+The last-mile pickup wave (PICKUP activation, `PICKUP_FAILED`, `PackageReturnInitiated`), the refund timing this context
+deliberately does not own, what the fleet's exception flow does with unexpected lines, and whether
+`ReturnlessThresholdCents` stays a constant or becomes policy ([ADR 0001](/docs/adr/0001-customer-returns-bounded-context),
+[ADR 0002](/docs/adr/0002-aggregates-and-invariants)).

@@ -24,10 +24,12 @@ the caller.
   authorization is lazily cancelled by this read)
 - `POST /return-authorizations/{authorizationId}/cancellations` -> `CancelReturn`
 - `POST /return-authorizations/{authorizationId}/labels` -> `IssueLabel` — body `{packageNo}`
-  1..5; calls the shipping context's reverse-label route (ADR 0005); 422
-  `label-unavailable` while that route is not configured
+  1..5; calls the shipping context's reverse-label route (ADR 0005) with the authorization's
+  `destinationNodeId` and NO postal prefix (the label owner derives it); 422
+  `label-unavailable` while that route is not configured or refuses
 - `GET /return-authorizations/{id}/events` is deliberately NOT built (audit = the event stream).
 - `GET /healthz` (liveness), `GET /readyz` (drain gate, Postgres ping, Kafka metadata): not business operations.
+- Not served by `cmd/api`: the read-only `GET /reports/...` routes (tag `Reports`, `cmd/reports`, `internal/adapters/inbound/reportshttp`, ADR 0012; rules in `.claude/rules/analytics.md`).
 
 ## Conventions
 

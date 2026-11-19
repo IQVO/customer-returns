@@ -117,11 +117,36 @@ func NewNetworkViewRepository(s *Store) *NetworkViewRepository {
 	return &NetworkViewRepository{store: s}
 }
 
-// SaveNode upserts the node row.
-func (r *NetworkViewRepository) SaveNode(ctx context.Context, n network.Node) error {
+// RegisterNode upserts the node's descriptive attributes; the lifecycle of a
+// node already held is kept, a node never seen starts PENDING.
+func (r *NetworkViewRepository) RegisterNode(ctx context.Context, n network.Node) error {
 	defer r.store.enter(ctx)()
-	r.store.nodes[n.NodeID] = n
+	held := r.store.nodes[n.NodeID]
+	held.NodeID = n.NodeID
+	r.store.nodes[n.NodeID] = held.WithRegistration(n.Type, n.RegionID)
 	return nil
+}
+
+// SetNodeLifecycle moves only the lifecycle; a stale fact is a no-op and a
+// node never seen gets a lifecycle-only row.
+func (r *NetworkViewRepository) SetNodeLifecycle(ctx context.Context, nodeID string, lifecycle network.NodeLifecycle, at time.Time) error {
+	defer r.store.enter(ctx)()
+	held := r.store.nodes[nodeID]
+	held.NodeID = nodeID
+	if next, applies := held.WithStatus(lifecycle, at); applies {
+		r.store.nodes[nodeID] = next
+	}
+	return nil
+}
+
+// Node returns the node row, or ports.ErrNotFound.
+func (r *NetworkViewRepository) Node(ctx context.Context, nodeID string) (network.Node, error) {
+	defer r.store.enter(ctx)()
+	n, ok := r.store.nodes[nodeID]
+	if !ok {
+		return network.Node{}, ports.ErrNotFound
+	}
+	return n, nil
 }
 
 // SavePrefix upserts the prefix row; a stale assignmentVersion is a no-op.
@@ -222,22 +247,6 @@ func (l *LabelIssuer) IssueReturnLabel(ctx context.Context, in requests.IssueRet
 	defer l.store.enter(ctx)()
 	l.store.issuedLabels = append(l.store.issuedLabels, in)
 	return l.store.labelResponse(in)
-}
-
-// Inbox is the memory double of the consumers' inbox.
-type Inbox struct{ store *Store }
-
-// NewInbox builds the double over the store.
-func NewInbox(s *Store) *Inbox { return &Inbox{store: s} }
-
-// Claim records the event id and reports whether it was new.
-func (i *Inbox) Claim(ctx context.Context, eventID, eventType string, _ time.Time) (bool, error) {
-	defer i.store.enter(ctx)()
-	if _, seen := i.store.inbox[eventID]; seen {
-		return false, nil
-	}
-	i.store.inbox[eventID] = eventType
-	return true, nil
 }
 
 // Outbox is the memory double of the transactional outbox write side.

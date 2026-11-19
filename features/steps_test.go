@@ -13,6 +13,7 @@ import (
 )
 
 func registerSteps(sc *godog.ScenarioContext, w *world) {
+	registerAnalyticsSteps(sc, w)
 	sc.Given(`^the order "([^"]*)" group (\d+) was placed with prefix "([^"]*)" and lines "([^"]*)"$`, w.placedOrder)
 	sc.Given(`^the group is (\w+)$`, w.groupStatus)
 	sc.Given(`^an ACTIVE returns centre "([^"]*)" serves region "([^"]*)" and prefix "([^"]*)" is in that region$`, w.returnsCentre)
@@ -25,6 +26,7 @@ func registerSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Then(`^the state is (\w+)$`, w.state)
 	sc.Then(`^the problem is "([^"]*)" with status (\d+)$`, w.problem)
 	sc.Then(`^the authorization carries tracking number "([^"]*)"$`, w.tracking)
+	sc.Then(`^the reverse label was requested for the destination node "([^"]*)"$`, w.labelDestination)
 	sc.Then(`^a ReturnCompleted event names "([^"]*)" with (\d+) restockable units$`, w.completedEvent)
 	sc.Then(`^the outcome fact records line "([^"]*)" as unexpected$`, w.unexpectedFact)
 }
@@ -51,14 +53,28 @@ func (w *world) groupStatus(status string) error {
 
 func (w *world) returnsCentre(node, region, prefix string) error {
 	ctx := context.Background()
-	if err := w.store.NetworkSaver().SaveNode(ctx, network.Node{
-		NodeID: node, Type: network.TypeReturnsCenter, RegionID: region, Lifecycle: network.NodeActive,
+	if err := w.store.NetworkSaver().RegisterNode(ctx, network.Node{
+		NodeID: node, Type: network.TypeReturnsCenter, RegionID: region,
 	}); err != nil {
+		return err
+	}
+	if err := w.store.NetworkSaver().SetNodeLifecycle(ctx, node, network.NodeActive, start); err != nil {
 		return err
 	}
 	return w.store.NetworkSaver().SavePrefix(ctx, network.PrefixAssignment{
 		PostalPrefix: prefix, RegionID: region, AssignmentVersion: 1,
 	})
+}
+
+// labelDestination asserts the ONE label call made named the return's
+// destination by this node id (the request carries no postal prefix: its
+// type has none).
+func (w *world) labelDestination(node string) error {
+	calls := w.store.IssuedLabels()
+	if len(calls) != 1 || calls[0].DestinationNodeID != node {
+		return fmt.Errorf("label calls = %+v, want one for the destination node %s", calls, node)
+	}
+	return nil
 }
 
 func (w *world) labelResponse(tracking string) error {
@@ -84,10 +100,13 @@ func (w *world) authorize(cents int) error {
 }
 
 func (w *world) outcome(restockable int, item, node string) error {
+	// The payload has the shape vendor-connectivity publishes
+	// (outcomeSubmittedData in its outbound encoder): both quantities always.
 	err := w.feed(w.vendor, "com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", w.lastID, map[string]any{
+		"transactionId": "tx-" + w.lastID, "vendorId": "vendor-77",
 		"authorizationId": w.lastID, "nodeId": node,
 		"receivedAt": start.Add(96 * time.Hour),
-		"lines":      []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable}},
+		"lines":      []map[string]any{{"catalogItemId": item, "qtyRestockable": restockable, "qtyUnsellable": 0}},
 	})
 	if err != nil {
 		return err

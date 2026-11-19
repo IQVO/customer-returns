@@ -47,7 +47,9 @@ func newHarness(t *testing.T) *harness {
 	}
 }
 
-// cloudEvent builds one structured-mode CloudEvent of typ with data.
+// cloudEvent builds one structured-mode CloudEvent of typ with data. It is for
+// the payloads a producer does NOT publish (a type this context ignores, a
+// malformed payload); a consumed fact comes from producerEvent.
 func cloudEvent(id, typ, subject string, data any) []byte {
 	body, _ := json.Marshal(data)
 	envelope := map[string]any{
@@ -68,21 +70,59 @@ func (h *harness) group(orderID string, groupNo int) network.OrderGroup {
 	return g
 }
 
+// producerEvent returns a producer's own example (pinned_examples_test.go,
+// read from the pinned spec) with a new CloudEvents id and the named `data`
+// fields replaced: the shape
+// stays the producer's, only the ids a scenario needs change. Tests never
+// invent a consumed payload.
+func producerEvent(t *testing.T, example, id string, set map[string]any) []byte {
+	t.Helper()
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(example), &envelope); err != nil {
+		t.Fatalf("producer example: %v", err)
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["data"], &data); err != nil {
+		t.Fatalf("producer example data: %v", err)
+	}
+	for k, v := range set {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("producer example field %s: %v", k, err)
+		}
+		data[k] = raw
+	}
+	envelope["data"], _ = json.Marshal(data)
+	envelope["id"], _ = json.Marshal(id)
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("producer example: %v", err)
+	}
+	return out
+}
+
+func (h *harness) node(t *testing.T, nodeID string) network.Node {
+	t.Helper()
+	n, err := h.store.NetworkSaver().Node(context.Background(), nodeID)
+	if err != nil {
+		t.Fatalf("node %s: %v", nodeID, err)
+	}
+	return n
+}
+
 func TestOrderPlacedProjectsGroups(t *testing.T) {
 	h := newHarness(t)
-	msg := cloudEvent("e-1", "com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced", "ord-1", map[string]any{
-		"orderId": "ord-1", "placedAt": now, "destinationPostalPrefix": "013",
-		"groups": []map[string]any{{
-			"groupNo": 1, "destinationPostalPrefix": "013", "witnessNodeId": "node-fc-1",
-			"lines": []map[string]any{{"lineNo": 1, "catalogItemId": "sku-100", "quantity": 2}},
-		}},
-	})
+	msg := producerEvent(t, exampleCustomerOrderingCustomerOrderPlaced, "e-1", map[string]any{"orderId": "ord-1"})
 	if err := h.order.HandleMessage(context.Background(), msg); err != nil {
 		t.Fatalf("HandleMessage: %v", err)
 	}
 	g := h.group("ord-1", 1)
-	if g.Status != network.GroupPromised || g.DestinationPostalPrefix != "013" || len(g.Lines) != 1 {
+	// The prefix is the ORDER's: customer-ordering publishes none on a group.
+	if g.Status != network.GroupPromised || g.DestinationPostalPrefix != "787" || g.WitnessNodeID != "fc-aus-1" {
 		t.Fatalf("group = %+v", g)
+	}
+	if len(g.Lines) != 1 || g.Lines[0] != (network.GroupLine{LineNo: 1, CatalogItemID: "sku-100", Quantity: 2}) {
+		t.Fatalf("lines = %+v", g.Lines)
 	}
 	// a replay is idempotent (inbox)
 	if err := h.order.HandleMessage(context.Background(), msg); err != nil {
@@ -93,6 +133,11 @@ func TestOrderPlacedProjectsGroups(t *testing.T) {
 	}
 }
 
+// customer-ordering's contract has ONE ShopperNoticeDecided example, of the
+// ETA_WINDOW_ASSIGNED family. The terminal families below are that example
+// with the family and the fact the producer's encoder writes for them
+// (customer-ordering internal/adapters/outbound/kafka/encoder.go,
+// noticeFactData: `status` only).
 func TestTerminalNoticeFamiliesUpdateStatus(t *testing.T) {
 	h := newHarness(t)
 	// ordered steps: a slice, never a map (fleet rule)
@@ -107,10 +152,8 @@ func TestTerminalNoticeFamiliesUpdateStatus(t *testing.T) {
 	}
 	for _, step := range families {
 		family, want := step.family, step.want
-		msg := cloudEvent("e-"+family, "com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided", "ord-1", map[string]any{
-			"orderId": "ord-1", "groupNo": 3, "family": family, "notifier": "NOBODY",
-			"policyVersion": 0, "noticeKey": "k-" + family, "decidedAt": now,
-			"fact": map[string]any{"status": want},
+		msg := producerEvent(t, exampleCustomerOrderingShopperNoticeDecided, "e-"+family, map[string]any{
+			"orderId": "ord-1", "groupNo": 3, "family": family, "fact": map[string]any{"status": want},
 		})
 		if err := h.order.HandleMessage(context.Background(), msg); err != nil {
 			t.Fatalf("%s: %v", family, err)
@@ -119,12 +162,9 @@ func TestTerminalNoticeFamiliesUpdateStatus(t *testing.T) {
 			t.Fatalf("%s: status = %s, want %s", family, got, want)
 		}
 	}
-	// a non-terminal family is ignored
-	msg := cloudEvent("e-eta", "com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided", "ord-1", map[string]any{
-		"orderId": "ord-1", "groupNo": 3, "family": "ETA_WINDOW_ASSIGNED", "notifier": "NOBODY",
-		"policyVersion": 0, "noticeKey": "k-eta", "decidedAt": now,
-		"fact": map[string]any{"etaStart": now, "etaEnd": now},
-	})
+	// a non-terminal family is ignored: the producer's example as published,
+	// pointed at the same group
+	msg := producerEvent(t, exampleCustomerOrderingShopperNoticeDecided, "e-eta", map[string]any{"orderId": "ord-1", "groupNo": 3})
 	if err := h.order.HandleMessage(context.Background(), msg); err != nil {
 		t.Fatalf("eta family: %v", err)
 	}
@@ -133,34 +173,45 @@ func TestTerminalNoticeFamiliesUpdateStatus(t *testing.T) {
 	}
 }
 
+// The node facts as node-topology publishes them: NodeRegistered carries the
+// type and the region, the three status facts carry the node id and an
+// instant. A returns centre is a destination only while ACTIVE.
 func TestNodeFactsProjectLifecycle(t *testing.T) {
 	h := newHarness(t)
+	registered := producerEvent(t, exampleNodeTopologyNodeRegistered, "e-node-reg", map[string]any{
+		"nodeId": "node-rc-1", "nodeType": "RETURNS_CENTER", "subtype": nil,
+	})
+	if err := h.topo.HandleMessage(context.Background(), registered); err != nil {
+		t.Fatalf("NodeRegistered: %v", err)
+	}
+	if n := h.node(t, "node-rc-1"); n.Type != network.TypeReturnsCenter || n.RegionID != "region-se" || n.Lifecycle != network.NodePending {
+		t.Fatalf("registered node = %+v", n)
+	}
 	steps := []struct {
-		typ  string
-		want network.NodeLifecycle
+		example string
+		want    network.NodeLifecycle
 	}{
-		{"com.retailnetwork.logistics.node-topology.node.NodeRegistered", network.NodePending},
-		{"com.retailnetwork.logistics.node-topology.node.NodeActivated", network.NodeActive},
-		{"com.retailnetwork.logistics.node-topology.node.NodeSuspended", network.NodeSuspended},
-		{"com.retailnetwork.logistics.node-topology.node.NodeRetired", network.NodeRetired},
+		{exampleNodeTopologyNodeActivated, network.NodeActive},
+		{exampleNodeTopologyNodeSuspended, network.NodeSuspended},
+		{exampleNodeTopologyNodeRetired, network.NodeRetired},
 	}
 	for i, s := range steps {
-		msg := cloudEvent("e-node-"+s.typ[:40]+string(rune('a'+i)), s.typ, "node-rc-1", map[string]any{
-			"nodeId": "node-rc-1", "nodeType": "RETURNS_CENTER", "regionId": "region-se",
-		})
+		msg := producerEvent(t, s.example, "e-node-status-"+string(rune('a'+i)), map[string]any{"nodeId": "node-rc-1"})
 		if err := h.topo.HandleMessage(context.Background(), msg); err != nil {
-			t.Fatalf("%s: %v", s.typ, err)
+			t.Fatalf("%s: %v", s.want, err)
+		}
+		// only the lifecycle moved: the status facts carry no type and no region
+		if n := h.node(t, "node-rc-1"); n.Type != network.TypeReturnsCenter || n.RegionID != "region-se" || n.Lifecycle != s.want {
+			t.Fatalf("after %s the node = %+v", s.want, n)
 		}
 		node, err := h.store.NetworkSaver().ReturnsCenterForRegion(context.Background(), "region-se")
 		if s.want == network.NodeActive {
 			if err != nil || node.NodeID != "node-rc-1" {
 				t.Fatalf("active lookup: %+v %v", node, err)
 			}
+		} else if err == nil {
+			t.Fatalf("a %s centre is still a destination: %+v", s.want, node)
 		}
-	}
-	// once retired the region has no active returns centre
-	if _, err := h.store.NetworkSaver().ReturnsCenterForRegion(context.Background(), "region-se"); err == nil {
-		t.Fatal("retired node still active")
 	}
 }
 
@@ -168,9 +219,8 @@ func TestServiceAreaAssignedKeepsHighestVersion(t *testing.T) {
 	h := newHarness(t)
 	feed := func(id, prefix, region string, version int64) {
 		t.Helper()
-		msg := cloudEvent(id, "com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned", prefix, map[string]any{
-			"postalPrefix": prefix, "deliveryStationNodeId": "node-ds-1", "regionId": region,
-			"assignmentVersion": version,
+		msg := producerEvent(t, exampleNodeTopologyServiceAreaAssigned, id, map[string]any{
+			"postalPrefix": prefix, "regionId": region, "assignmentVersion": version,
 		})
 		if err := h.topo.HandleMessage(context.Background(), msg); err != nil {
 			t.Fatalf("feed %s: %v", id, err)
@@ -186,18 +236,18 @@ func TestServiceAreaAssignedKeepsHighestVersion(t *testing.T) {
 
 func TestOriginFactsMergeNodeAndOwners(t *testing.T) {
 	h := newHarness(t)
-	release := cloudEvent("e-rel", "com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode", "asg-1", map[string]any{
+	release := producerEvent(t, exampleOrderSourcingFulfillmentReleasedToNode, "e-rel", map[string]any{
 		"orderId": "ord-1", "groupNo": 1, "nodeId": "node-fc-1",
 		"lines": []map[string]any{
-			{"catalogItemId": "sku-100", "ownerRef": "sel-42", "quantity": 2},
-			{"catalogItemId": "sku-200", "quantity": 1},
+			{"catalogItemId": "sku-100", "listingId": "lst-sku-100-node-fc-1-sel-42", "ownerRef": "sel-42", "quantity": 2},
+			{"catalogItemId": "sku-200", "listingId": "lst-sku-200-node-fc-1", "quantity": 1},
 		},
 	})
 	if err := h.src.HandleMessage(context.Background(), release); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	locked := cloudEvent("e-lock", "com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked", "asg-1", map[string]any{
-		"orderId": "ord-1", "groupNo": 1, "nodeId": "node-fc-9", "lockedAt": now,
+	locked := producerEvent(t, exampleOrderSourcingFulfillmentLocked, "e-lock", map[string]any{
+		"orderId": "ord-1", "groupNo": 1, "nodeId": "node-fc-9",
 	})
 	if err := h.src.HandleMessage(context.Background(), locked); err != nil {
 		t.Fatalf("locked: %v", err)
@@ -217,11 +267,11 @@ func TestOriginFactsMergeNodeAndOwners(t *testing.T) {
 func TestVendorOutcomeCompletesAuthorization(t *testing.T) {
 	h := newHarness(t)
 	seedAuthorization(t, h)
-	msg := cloudEvent("e-out", "com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", "ret-1", map[string]any{
-		"authorizationId": "ret-1", "nodeId": "node-rc-1", "receivedAt": now,
+	msg := producerEvent(t, exampleVendorConnectivityVendorReturnOutcomeSubmitted, "e-out", map[string]any{
+		"authorizationId": "ret-1", "nodeId": "node-rc-1",
 		"lines": []map[string]any{
 			{"catalogItemId": "sku-100", "ownerRef": "sel-42", "qtyRestockable": 1, "qtyUnsellable": 1},
-			{"catalogItemId": "sku-999", "qtyRestockable": 5},
+			{"catalogItemId": "sku-999", "qtyRestockable": 5, "qtyUnsellable": 0},
 		},
 	})
 	if err := h.vendor.HandleMessage(context.Background(), msg); err != nil {
@@ -267,9 +317,9 @@ func TestVendorOutcomeCompletesAuthorization(t *testing.T) {
 
 func TestVendorOutcomeUnknownAuthorizationIsAcknowledged(t *testing.T) {
 	h := newHarness(t)
-	msg := cloudEvent("e-out-x", "com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted", "ret-none", map[string]any{
-		"authorizationId": "ret-none", "nodeId": "node-rc-1", "receivedAt": now,
-		"lines": []map[string]any{{"catalogItemId": "sku-100", "qtyRestockable": 1}},
+	msg := producerEvent(t, exampleVendorConnectivityVendorReturnOutcomeSubmitted, "e-out-x", map[string]any{
+		"authorizationId": "ret-none", "nodeId": "node-rc-1",
+		"lines": []map[string]any{{"catalogItemId": "sku-100", "qtyRestockable": 1, "qtyUnsellable": 0}},
 	})
 	if err := h.vendor.HandleMessage(context.Background(), msg); err != nil {
 		t.Fatalf("outcome: %v", err)

@@ -152,3 +152,46 @@ Source: the two migrations above. The idempotency rows are purged after 24 hours
 (see [Runbook](/docs/operations/runbook)). Check constraints (`state`, `packing_option`, `level`, `occurrence_type`,
 `version >= 1`, `cartons_received <= cartons_reported`) are in the migrations. Column details of the outbox and
 consumer behaviour are on [Troubleshooting](/docs/operations/troubleshooting).
+
+## Analytical database tables
+
+The analytical database is separate from the OLTP one (ADR 0012, optional, default off). It is a projection of this
+context's own topic `retailnetwork.customer-returns.events`, written only by `cmd/projector` and read read-only by
+`cmd/reports`; it can be dropped and rebuilt from the topic.
+
+```mermaid
+erDiagram
+    analytics_processed_events {
+        TEXT event_id PK "CloudEvents id"
+        TEXT event_type
+        TIMESTAMPTZ occurred_at "CloudEvents time"
+        TIMESTAMPTZ applied_at
+    }
+    return_authorizations {
+        TEXT authorization_id PK
+        TEXT reason "enum return reason code"
+        TIMESTAMPTZ authorized_at
+        TEXT event_id
+    }
+    return_receipts {
+        TEXT authorization_id PK
+        TIMESTAMPTZ received_at
+        TEXT event_id
+    }
+```
+
+Source: `analytics/migrations/0001_return_facts.up.sql`, `internal/adapters/outbound/analyticsstore/projection.go`,
+`reader.go`. The migration declares no foreign keys, so no relationship line is drawn. The tables are related by value:
+the report left-joins `return_receipts` to `return_authorizations` on `authorization_id` for the time to receive, and a
+receipt without its authorization counts as received but has no timing.
+
+- `analytics_processed_events` is the idempotency claim: the projector inserts the event id (`ON CONFLICT (event_id) DO
+  NOTHING`) in the same transaction as the fact it projects, so a replayed id is a no-op. `max(occurred_at)` is the basis
+  of the freshness report.
+- `return_authorizations` has one row per authorization from `ReturnAuthorized`, upserted on `authorization_id`;
+  `authorized_at` is the payload's `authorizedAt`.
+- `return_receipts` has one row per authorization from `ReturnCompleted`, upserted on `authorization_id`; `received_at` is
+  the payload's `receivedAt`.
+- `authorization_id`, `reason` are `CHECK (... <> '')` non-empty. Three indexes:
+  `idx_return_authorizations_authorized_at`, `idx_return_receipts_received_at` and
+  `idx_analytics_processed_events_occurred_at`.

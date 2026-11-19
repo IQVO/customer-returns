@@ -46,8 +46,19 @@ type GroupViewRepository interface {
 // the node, prefix and origin projections of node-topology's and
 // order-sourcing's facts.
 type NetworkViewRepository interface {
-	// SaveNode upserts the node row.
-	SaveNode(ctx context.Context, n network.Node) error
+	// RegisterNode upserts the descriptive attributes of the node (n.Type,
+	// n.RegionID) from a NodeRegistered fact. A node never seen starts
+	// PENDING; a node already held keeps its lifecycle and its status
+	// instant (n.Lifecycle and n.LifecycleAt are not read), so a registration
+	// applied again never demotes an ACTIVE, SUSPENDED or RETIRED node.
+	RegisterNode(ctx context.Context, n network.Node) error
+	// SetNodeLifecycle applies a status fact that happened at the instant at:
+	// it moves the lifecycle and nothing else. A fact older than the one that
+	// set the current lifecycle is a no-op. A node never seen gets a
+	// lifecycle-only row (no type, no region) that the registration completes.
+	SetNodeLifecycle(ctx context.Context, nodeID string, lifecycle network.NodeLifecycle, at time.Time) error
+	// Node returns the node row, or ErrNotFound.
+	Node(ctx context.Context, nodeID string) (network.Node, error)
 	// SavePrefix upserts the prefix row (the caller keeps the highest
 	// assignmentVersion; the repository treats a stale write as a no-op).
 	SavePrefix(ctx context.Context, p network.PrefixAssignment) error

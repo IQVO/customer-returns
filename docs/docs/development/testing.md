@@ -64,6 +64,10 @@ fitness tests enforce this (`TestPostgresIntegrationTestsUseTestcontainers`, `Te
 
 ## Contract tests
 
+- Consumer contract tests against the producers' pinned specs (`contracts/pinned.json`, CI job `pinned-contracts`):
+  the four event edges in `internal/adapters/inbound/kafka` (E1-E4) and the label route in
+  `internal/adapters/outbound/labels` (R1-R4). See [Consumer contract testing](./contract-testing.md).
+
 - `TestEventCatalogueMatchesContract` (`internal/architecture/catalogue_fitness_test.go`, a fleet-managed file) checks
   that every `com.warehouse.(wms|wes).<service>...` or `com.retailnetwork.<domain>.<service>...` type that
   `apis/asyncapi.yaml` declares for this module appears in the ADR catalogue. customer-returns's types are
@@ -142,7 +146,7 @@ Triggers: push and pull request on `main` and `develop`, a weekly Monday schedul
 | `bdd` | `go test ./... -run TestFeatures -v` | blocking |
 | `integration` | `go test -tags=integration ./... -race -count=1` | blocking |
 | `mutation-fast` | gremlins on every package under `internal/domain` | blocking |
-| `mutation`, `drift` | exhaustive mutation, deadcode, `go mod tidy -diff`, knip, coverage-quality | scheduled and manual only; open a `harness:red` issue on a scheduled failure |
+| `mutation`, `drift` | exhaustive mutation, deadcode, `go mod tidy -diff`, coverage-quality | scheduled and manual only; open a `harness:red` issue on a scheduled failure |
 | `api-lint` | Spectral on both specs | blocking |
 | `vuln` | govulncheck | blocking |
 | `helm-lint` | `ct lint` and the Service selector test | pull requests only |

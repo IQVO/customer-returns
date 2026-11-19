@@ -241,9 +241,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: "20"
       - name: Dead code (go tool deadcode, -test so test-only helpers don't false-positive)
         run: |
           go install golang.org/x/tools/cmd/deadcode@v0.35.0
@@ -253,12 +250,6 @@ jobs:
         run: |
           echo "### go mod tidy -diff" >> "$GITHUB_STEP_SUMMARY"
           go mod tidy -diff | tee -a "$GITHUB_STEP_SUMMARY" || true
-      - name: Unused frontend exports/files/deps (knip)
-        working-directory: web
-        run: |
-          npm ci
-          echo "### knip (web/)" >> "$GITHUB_STEP_SUMMARY"
-          npx knip --no-exit-code | tee -a "$GITHUB_STEP_SUMMARY" || true
       - name: Coverage quality — high-coverage functions with a surviving mutant
         run: |
           go test ./internal/domain/... -coverprofile=/tmp/cov.out -covermode=atomic
@@ -405,6 +396,28 @@ jobs:
           go-version-file: go.mod
       - name: Architecture fitness tests
         run: go test ./internal/architecture/... -v
+
+  # ============================================================
+  # CLASSIFICATION: CONTRACT PINS (compared with the producer's develop)
+  # ============================================================
+  # The consumer contract test validates against a COPY of the producer's spec. A
+  # copy nobody refreshes keeps that test green while the producer moves on. This
+  # job fails when a pin in contracts/pinned.json differs from the producer's
+  # develop. The producer repo is public; a producer that cannot be read fails the
+  # job (exit 2), never passes it.
+  pinned-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Pins equal the producer's develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/harness/pinned_contract_gate.py
+      - name: The gate's own tests
+        run: python3 scripts/harness/test_pinned_contract_gate.py
 
   # customer-returns-mfe (web/) is a Module Federation remote consumed by the
   # warehouse-console shell; it depends on @warehouse/ui-kit via

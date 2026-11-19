@@ -48,10 +48,10 @@ func NewOrderConsumer(brokers []string, groupID string, svc *usecases.Service, l
 // region a postal prefix belongs to.
 func NewTopologyConsumer(brokers []string, groupID string, svc *usecases.Service, logger *slog.Logger) *Consumer {
 	return newConsumer("node-topology", brokers, topicNodeTopology, groupID, map[string]HandlerFunc{
-		typeNodeRegistered:      handleNodeFact(svc, network.NodePending, typeNodeRegistered),
-		typeNodeActivated:       handleNodeFact(svc, network.NodeActive, typeNodeActivated),
-		typeNodeSuspended:       handleNodeFact(svc, network.NodeSuspended, typeNodeSuspended),
-		typeNodeRetired:         handleNodeFact(svc, network.NodeRetired, typeNodeRetired),
+		typeNodeRegistered:      handleNodeRegistered(svc),
+		typeNodeActivated:       handleNodeStatus(svc, network.NodeActive, typeNodeActivated),
+		typeNodeSuspended:       handleNodeStatus(svc, network.NodeSuspended, typeNodeSuspended),
+		typeNodeRetired:         handleNodeStatus(svc, network.NodeRetired, typeNodeRetired),
 		typeServiceAreaAssigned: handleServiceArea(svc),
 	}, logger)
 }
@@ -77,17 +77,26 @@ func NewVendorConsumer(brokers []string, groupID string, svc *usecases.Service, 
 
 func eventID(e ce.Event) string { return e.ID() }
 
-type placedGroupWire struct {
-	GroupNo                 int                 `json:"groupNo"`
-	DestinationPostalPrefix string              `json:"destinationPostalPrefix"`
-	WitnessNodeID           string              `json:"witnessNodeId"`
-	Lines                   []network.GroupLine `json:"lines"`
+type placedLineWire struct {
+	LineNo        int    `json:"lineNo"`
+	CatalogItemID string `json:"catalogItemId"`
+	Quantity      int    `json:"quantity"`
 }
 
+type placedGroupWire struct {
+	GroupNo       int              `json:"groupNo"`
+	WitnessNodeID string           `json:"witnessNodeId"`
+	Lines         []placedLineWire `json:"lines"`
+}
+
+// orderPlacedWire is the part of CustomerOrderPlaced this context reads. The
+// destination postal prefix is published once, on the order: the groups carry
+// none.
 type orderPlacedWire struct {
-	OrderID  string            `json:"orderId"`
-	PlacedAt time.Time         `json:"placedAt"`
-	Groups   []placedGroupWire `json:"groups"`
+	OrderID                 string            `json:"orderId"`
+	DestinationPostalPrefix string            `json:"destinationPostalPrefix"`
+	PlacedAt                time.Time         `json:"placedAt"`
+	Groups                  []placedGroupWire `json:"groups"`
 }
 
 func handleOrderPlaced(svc *usecases.Service) HandlerFunc {
@@ -99,11 +108,17 @@ func handleOrderPlaced(svc *usecases.Service) HandlerFunc {
 		if wire.OrderID == "" || len(wire.Groups) == 0 {
 			return errBadPayload
 		}
-		placed := requests.OrderPlaced{OrderID: wire.OrderID, PlacedAt: wire.PlacedAt, Groups: make([]requests.PlacedGroup, 0, len(wire.Groups))}
+		placed := requests.OrderPlaced{
+			OrderID: wire.OrderID, DestinationPostalPrefix: wire.DestinationPostalPrefix, PlacedAt: wire.PlacedAt,
+			Groups: make([]requests.PlacedGroup, 0, len(wire.Groups)),
+		}
 		for _, g := range wire.Groups {
+			lines := make([]network.GroupLine, 0, len(g.Lines))
+			for _, l := range g.Lines {
+				lines = append(lines, network.GroupLine{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, Quantity: l.Quantity})
+			}
 			placed.Groups = append(placed.Groups, requests.PlacedGroup{
-				GroupNo: g.GroupNo, DestinationPostalPrefix: g.DestinationPostalPrefix,
-				WitnessNodeID: g.WitnessNodeID, Lines: g.Lines,
+				GroupNo: g.GroupNo, WitnessNodeID: g.WitnessNodeID, Lines: lines,
 			})
 		}
 		return svc.OnOrderPlaced(ctx, eventID(e), placed)
@@ -131,84 +146,6 @@ func handleNoticeDecided(svc *usecases.Service) HandlerFunc {
 		return svc.OnNoticeDecided(ctx, eventID(e), requests.NoticeDecided{
 			OrderID: wire.OrderID, GroupNo: wire.GroupNo, Family: wire.Family,
 			Status: network.GroupStatus(wire.Fact.Status),
-		})
-	}
-}
-
-type nodeWire struct {
-	NodeID   string `json:"nodeId"`
-	NodeType string `json:"nodeType"`
-	RegionID string `json:"regionId"`
-}
-
-func handleNodeFact(svc *usecases.Service, lifecycle network.NodeLifecycle, eventType string) HandlerFunc {
-	return func(ctx context.Context, e ce.Event) error {
-		wire, err := decodeData[nodeWire](e)
-		if err != nil {
-			return err
-		}
-		if wire.NodeID == "" || wire.NodeType == "" {
-			return errBadPayload
-		}
-		return svc.OnNodeFact(ctx, eventID(e), eventType, requests.NodeFact{
-			NodeID: wire.NodeID, NodeType: network.NodeType(wire.NodeType),
-			RegionID: wire.RegionID, Lifecycle: lifecycle,
-		})
-	}
-}
-
-type serviceAreaWire struct {
-	PostalPrefix      string `json:"postalPrefix"`
-	RegionID          string `json:"regionId"`
-	AssignmentVersion int64  `json:"assignmentVersion"`
-}
-
-func handleServiceArea(svc *usecases.Service) HandlerFunc {
-	return func(ctx context.Context, e ce.Event) error {
-		wire, err := decodeData[serviceAreaWire](e)
-		if err != nil {
-			return err
-		}
-		if wire.PostalPrefix == "" || wire.RegionID == "" {
-			return errBadPayload
-		}
-		return svc.OnPrefixFact(ctx, eventID(e), requests.PrefixFact{
-			PostalPrefix: wire.PostalPrefix, RegionID: wire.RegionID,
-			AssignmentVersion: wire.AssignmentVersion,
-		})
-	}
-}
-
-type releaseLineWire struct {
-	CatalogItemID string `json:"catalogItemId"`
-	OwnerRef      string `json:"ownerRef,omitempty"`
-}
-
-type originWire struct {
-	OrderID string            `json:"orderId"`
-	GroupNo int               `json:"groupNo"`
-	NodeID  string            `json:"nodeId"`
-	Lines   []releaseLineWire `json:"lines,omitempty"`
-}
-
-func handleOriginFact(svc *usecases.Service, locked bool, eventType string) HandlerFunc {
-	return func(ctx context.Context, e ce.Event) error {
-		wire, err := decodeData[originWire](e)
-		if err != nil {
-			return err
-		}
-		if wire.OrderID == "" || wire.GroupNo < 1 {
-			return errBadPayload
-		}
-		owners := make(map[string]string, len(wire.Lines))
-		for _, l := range wire.Lines {
-			if l.OwnerRef != "" {
-				owners[l.CatalogItemID] = l.OwnerRef
-			}
-		}
-		return svc.OnOriginFact(ctx, eventID(e), eventType, requests.OriginFact{
-			OrderID: wire.OrderID, GroupNo: wire.GroupNo, NodeID: wire.NodeID,
-			Locked: locked, Owners: owners,
 		})
 	}
 }

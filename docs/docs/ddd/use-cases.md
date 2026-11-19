@@ -10,162 +10,116 @@ description: "Every application use case of customer-returns: trigger, inputs, i
 
 One method of `usecases.Service` (`internal/application/usecases`) per command, query or consumed event. Each command
 runs in one Postgres transaction (`atomically`): the aggregate change, its outbox rows and, for consumers, the
-processed-event claim commit or roll back together. Nothing leaves the context synchronously: the node and packaging
-facts are read from local tables fed by Kafka ([Integration](/docs/ecosystem/integration)).
+processed-event claim commit or roll back together. Nothing else leaves the context synchronously except the one
+reverse-label call of [ADR 0005](/docs/adr/0005-the-reverse-label-route); every sibling fact is read from local tables
+fed by Kafka ([Integration](/docs/ecosystem/integration)).
 
 ## Conventions
 
 - **Errors** are `application/problem+json`; the status and slug of every error are in
   [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types).
-- **Idempotency-Key** is required on every `POST` (1 to 128 characters, kept 24 h); a repeat with the same body
-  replays the first answer (`Idempotency-Replayed: true`), the same key on a different method, path or body is `409 idempotency-key-reused`.
-- **Seller must be `ACTIVE`** for every plan, shipment and carton command and for confirm and ship
-  (`requireActiveSeller`, `internal/application/usecases/sellers.go`). Cancelling a plan and the receipt consumer do not
-  check it.
-- **Destination node must be able to receive** (`requireNode`): known to `node_inbound_views`, `ACTIVE`, type
-  `FULFILLMENT_CENTER` or `INBOUND_CROSS_DOCK`. An unknown node is `node-cannot-receive`.
-- Quantities are always eaches; GTINs are normalised to 14 digits; variable-measure GTINs (indicator digit 9) are
-  refused.
+- **Idempotency-Key** is required on every `POST` (1 to 128 printable ASCII characters, global); a repeat with the same
+  fingerprint replays the first answer (`Idempotency-Replayed: true`), the same key on a different method, path or body
+  is `409 idempotency-key-reused` ([ADR 0010](/docs/adr/0010-fleet-rest-api-guideline)).
+- **The group must be SHIPPED or DELIVERED** (`GroupStatus.Authorizable`), as customer-ordering's facts landed in
+  `order_group_views`; otherwise `422 group-not-shipped` — the shopper retries with the same `Idempotency-Key`.
+- **The disposition is decided here** by `Decide`, a pure function over the lines' caller-declared prices, the method
+  and the read models' destinations; the caller never chooses it.
+- **Expiry is checked first on every command touch** (label, outcome, cancel — `expireLazily`): past
+  `authorizedAt + 30d` the authorization is cancelled with `EXPIRED` and the call answers `422 authorization-expired`.
+  A pure read does not cancel: it reports the authorization's remaining state.
+- Unit prices are the storefront's facts: optional per line, stored and echoed, never published; an absent price makes
+  KEEP impossible and shows as `pricesAbsent`. Quantities are units of a catalog item.
 
-Source: `internal/application/usecases/{sellers,plans,shipments,scorecard,consumers}.go`, domain rules in
-`internal/domain/{seller,inboundplan,inboundshipment,network}`.
+Source: `internal/application/usecases/{authorize,labels,outcome,queries,consumers}.go`, domain rules in
+`internal/domain/{returnauthorization,network,shared}`.
 
 ## Summary
 
 | Use case | Trigger | Raises |
 | --- | --- | --- |
-| `OnboardSeller` | `POST /sellers` | `SellerOnboarded` |
-| `SuspendSeller` | `POST /sellers/{sellerId}/suspensions` | `SellerSuspended` |
-| `ReinstateSeller` | `POST /sellers/{sellerId}/reinstatements` | `SellerReinstated` |
-| `CreateInboundPlan` | `POST /inbound-plans` | none |
-| `ConfirmInboundPlan` | `POST /inbound-plans/{planId}/confirmations` | `InboundPlanConfirmed` |
-| `CancelInboundPlan` | `POST /inbound-plans/{planId}/cancellations` | none |
-| `CreateInboundShipment` | `POST /inbound-plans/{planId}/shipments` | none |
-| `AddCarton` | `POST /inbound-shipments/{shipmentId}/cartons` | none |
-| `LabelShipment` | `POST /inbound-shipments/{shipmentId}/labels` | `InboundShipmentLabelled` |
-| `ShipInboundShipment` | `POST /inbound-shipments/{shipmentId}/dispatches` | `InboundShipmentShipped` |
-| `ApplyInboundReceipt` | `InboundReceiptSubmitted` on Kafka | `InboundDiscrepancyRecorded`, `SellerComplianceViolationRecorded`, `InboundShipmentReceived` |
-| `ApplyNodeRegistered`, `ApplyNodeProfileDeclared`, `ApplyNodeActivated`, `ApplyNodeSuspended`, `ApplyNodeRetired` | node-topology events | none (updates `node_inbound_views`) |
-| `ApplyPackagingDeclared`, `ApplyPackLevelRetired` | offer-availability events | none (updates `catalog_pack_levels`) |
-| `GetInboundPlan`, `GetInboundShipment`, `GetLabels`, `GetSellerScorecard` | `GET` routes, MCP tools, A2A skills | none |
+| `AuthorizeReturn` | `POST /return-authorizations` | `ReturnAuthorized` |
+| `IssueLabel` | `POST /return-authorizations/{authorizationId}/labels` | `ReturnLabelIssued` |
+| `CancelReturn` | `POST /return-authorizations/{authorizationId}/cancellations` | `ReturnCancelled` |
+| `GetReturnAuthorization` | `GET /return-authorizations/{authorizationId}`; MCP `get_return_authorization`; the A2A skill | none |
+| `ListReturnAuthorizations` | `GET /return-authorizations?orderId=` (keyset-paged); MCP `list_return_authorizations` | none |
+| `OnOutcomeSubmitted` | `VendorReturnOutcomeSubmitted` on Kafka | `ReturnCompleted` (first fitting outcome) |
+| `OnOrderPlaced`, `OnNoticeDecided` | customer-ordering events | none (updates `order_group_views`) |
+| `OnNodeRegistered`, `OnNodeStatus`, `OnPrefixFact` | node-topology events | none (updates `returns_network_nodes`, `service_area_prefixes`) |
+| `OnOriginFact` | order-sourcing events | none (updates `group_origins`) |
 
-## Seller commands
+## Return commands
 
-### OnboardSeller
+### AuthorizeReturn
 
-- **Inputs:** `sellerId` (1 to 64 characters of `A-Z a-z 0-9 . _ -`, it is also the `ownerRef` of the stock), `name`
-  (non-blank, trimmed, at most 120 characters).
-- **Invariants:** the id is not onboarded yet (`seller-exists`).
-- **Result:** an `ACTIVE` seller, `SellerOnboarded` appended to the outbox.
+- **Inputs:** `orderId`, `groupNo`, `lines` (1 to 50, each picking one `lineNo` of the placed group with its declared
+  `unitPriceCents`), `reason` (one of the five codes), optional `method` (`DROP_OFF` is the default; `PICKUP` requires
+  `pickupWindowStart`/`pickupWindowEnd` inside the authorization's validity).
+- **Invariants:** the group exists and is authorizable (`group-not-shipped`); every `lineNo` resolves against the placed
+  group (`validation-failed` on an unknown line); `Decide` finds a disposition (`no-return-destination` otherwise);
+  quantity at least 1 per line.
+- **Result:** the authorization (`ret-<uuid>`, v1) with its decided disposition, `expiresAt = authorizedAt + 30d`; a
+  KEEP closes at once (`CLOSED_KEEP`). `ReturnAuthorized` appended to the outbox on every disposition, KEEP included.
 
-### SuspendSeller and ReinstateSeller
+### IssueLabel
 
-- **Inputs:** `sellerId`; for suspend an optional `reason` (trimmed, at most 200 characters).
-- **Invariants:** the seller exists (`not-found`). Suspending a suspended seller, or reinstating an active one, is a
-  no-op that raises no event and returns the seller (it is not an `illegal-transition`).
-- **Effect while suspended:** plan creation and confirmation, shipment creation, carton adding, labelling and shipping
-  are refused (`seller-suspended`). A shipment already `SHIPPED` still closes on the vendor's receipt.
-- **Events:** `SellerSuspended`, `SellerReinstated`.
+- **Inputs:** `authorizationId`, `packageNo` (1 to 5).
+- **Invariants:** expiry checked first; the authorization is open and its disposition is not KEEP (`illegal-transition`
+  otherwise); the tracking number is new (a duplicate is not re-linked) and at most five are linked.
+- **Effect:** calls the shipping context's `POST /return-labels` with `Idempotency-Key: <authorizationId>:<packageNo>`
+  OUTSIDE the unit of work; then ONE transaction re-reads the aggregate, links the tracking number and appends
+  `ReturnLabelIssued`. The request names the return's destination by the authorization's `destinationNodeId` and carries
+  no postal prefix: the label owner derives it from its own node view, and this context holds no address data of a node.
+  With `SHIPPING_LABELS_URL` unset — or any transport failure, non-201 or empty answer, the provider's
+  `409 destination-prefix-unavailable` for a node it does not know yet included — the call answers
+  `422 label-unavailable` and nothing else happens; the retry carries the same key and is served once the provider knows
+  the node ([ADR 0005](/docs/adr/0005-the-reverse-label-route), addendum 2026-11-18).
 
-## Inbound plan commands
+### CancelReturn
 
-### CreateInboundPlan
-
-- **Inputs:** `sellerId`, `destinationNodeId`, `packingOption` (`INDIVIDUAL` or `CASE_PACKED`), `lines` (1 to 500;
-  each `catalogItemId` once, a valid GTIN of 8, 12, 13 or 14 digits, `qtyEaches` from 1 to 2147483647).
-- **Invariants:** seller `ACTIVE`; node able to receive; the lines above.
-- **Result:** a `DRAFT` plan at version 1. No event: a draft is private to the seller.
-- **Note:** the plan is not checked against the packaging view. Whether a `CASE_PACKED` item has an active CASE level is
-  enforced on `AddCarton`, not here.
-
-### ConfirmInboundPlan
-
-- **Invariants:** plan `DRAFT` (`illegal-transition` otherwise); seller still `ACTIVE`; node still able to receive.
-- **Events:** `InboundPlanConfirmed` (seller, node, packing option and lines).
-
-### CancelInboundPlan
-
-- **Invariants:** plan `DRAFT`. `CONFIRMED` and `CANCELLED` are terminal. No event is published for a cancellation.
-
-## Shipment commands
-
-### CreateInboundShipment
-
-- **Inputs:** `planId`.
-- **Invariants:** plan `CONFIRMED`; seller `ACTIVE`; node able to receive. A confirmed plan may have several shipments.
-- **Result:** an empty `DRAFT` shipment (`shp-...`) for the plan's destination node. No event.
-
-### AddCarton
-
-- **Inputs:** `contents` (1 to 100 lines of `catalogItemId`, `gtin`, `qtyEaches`, optional `lot` up to 20 characters and
-  ISO `expiry`), `grossWeightG` (at least 1), `dimsMm` (`l`, `w`, `h` at least 1), optional `kind`, optional `sscc`,
-  optional `parentSscc`.
-- **Invariants (`internal/domain/inboundshipment/carton.go`):**
-  - shipment `DRAFT` and fewer than 1000 cartons;
-  - SSCC: a supplied one is 18 digits with a valid mod-10 check digit (`invalid-sscc`) and unique in the shipment and in
-    `sscc_registry` (`sscc-not-unique`); without one the network issues it from `SSCC_COMPANY_PREFIX` and
-    `SSCC_EXTENSION_DIGIT` (re-issued up to `SsccIssueAttempts` times if it collides);
-  - `parentSscc` differs from the SSCC, and the node must not forbid pallets (`acceptsPallets=false` gives
-    `node-cannot-receive`);
-  - kind: a `CASE_PACKED` plan makes every carton `HOMOGENEOUS_CASE` with exactly one item (`case-pack-not-uniform` if
-    asked `MIXED` or more than one item); an `INDIVIDUAL` plan makes it `MIXED`;
-  - node limits: weight at most `maxCartonWeightG` (`carton-overweight`), size fits `maxCartonDimsMm` in some
-    orientation (`carton-oversize`); a limit the node never declared is not checked;
-  - plan fit: each item is on the plan and the total over this shipment and the plan's other shipments does not exceed
-    the plan line (`carton-contents-mismatch-plan`);
-  - case-packed: the item is packed at one quantity per carton (`case-pack-not-uniform`), and that quantity equals the
-    `unitsPerPack` of an active CASE level with this GTIN in `catalog_pack_levels` (`case-qty-mismatches-gtin`).
-- **Result:** the carton, `ssccIssued`, and its label data. No event: cartons are published with the shipment when it is
-  labelled.
-
-### LabelShipment
-
-- **Invariants:** shipment `DRAFT` with at least one carton; seller `ACTIVE`; node able to receive. If the plan has only
-  this one shipment, its cartons must add up to every plan line exactly (`carton-contents-mismatch-plan`).
-- **Effect:** `LABELLED`, every carton sealed, contents frozen.
-- **Events:** `InboundShipmentLabelled` carrying the whole carton manifest.
-
-### ShipInboundShipment
-
-- **Invariants:** shipment `LABELLED` (`DRAFT` gives `shipment-not-labelled`, any later state `illegal-transition`);
-  seller `ACTIVE`; node still able to receive.
-- **Events:** `InboundShipmentShipped`. Every ship attempt, successful or not, increments the counter
-  `customer_returns.shipment.shipped` ([Observability](/docs/operations/observability)).
+- **Invariants:** the authorization exists (`not-found`) and is still `AUTHORIZED` (`illegal-transition` once anything
+  is in transit). The reason is `SHOPPER_REQUESTED`; the lazy expiry is the only other cancellation cause in v1.
+- **Events:** `ReturnCancelled`.
 
 ## Consumed events
 
-### ApplyInboundReceipt (policy ReceiveOnVendorReceipt)
+### OnOutcomeSubmitted (policy FirstFittingOutcome)
 
-- **Trigger:** `InboundReceiptSubmitted` from vendor-connectivity.
-- **Invariants (`Shipment.RecordReceipt`):** the shipment exists (otherwise `not found`, dead-lettered at once); it is
-  `SHIPPED` or `RECEIVING` (a `CLOSED` or `CLOSED_WITH_DISCREPANCY` shipment ignores the receipt as a no-op); the
-  receipt's `nodeId` is the shipment's node; every carton has a valid SSCC, a status in `RECEIVED`, `MISSING`,
-  `UNEXPECTED`, `DAMAGED`, and appears once.
-- **Effect:** the first answer for a carton is final. A `MISSING`, `UNEXPECTED` or `DAMAGED` carton and every quantity
-  difference per GTIN (`Short`, `Over`) become an `InboundDiscrepancyRecorded`. A carton the manifest does not list is
-  recorded once as `UNEXPECTED` with the code `UNMANIFESTED_CARTON`. Each distinct compliance code of a carton becomes a
-  `SellerComplianceViolationRecorded`. When every manifest carton has an answer the shipment closes (`CLOSED`, or
-  `CLOSED_WITH_DISCREPANCY` when anything differed) and `InboundShipmentReceived` is raised; until then it is
-  `RECEIVING`.
-- **Same transaction:** the shipment, the outbox rows, the scorecard facts (`seller_scorecard_receipts` and
-  `seller_scorecard_occurrences`) and the `processed_events` claim.
-- **Errors:** none are returned to a caller. A transient database error is retried; a permanent one (validation,
-  illegal transition, unknown shipment) is dead-lettered ([Troubleshooting](/docs/operations/troubleshooting)).
+- **Trigger:** `VendorReturnOutcomeSubmitted` from vendor-connectivity — the returns centre's graded outcome, per item
+  `qtyRestockable` and `qtyUnsellable`.
+- **Invariants:** the outcome's per-item quantities never exceed the authorized quantity, and each item appears once;
+  the authorization is `AUTHORIZED` or `IN_TRANSIT` (`ApplyOutcome`).
+- **Effect:** the first outcome that fits an open authorization completes it (`RECEIVED`, `ReturnCompleted` with the
+  authorized lines only — the restock fact offer-availability consumes). Outcomes for unknown or closed authorizations
+  and later duplicates are recorded on `return_outcomes` and acknowledged — never a consumer error. Lines beyond the
+  authorization are recorded flagged `unexpected`, never published, never restocked (ADR 0002 A6 and A7).
+- **Errors:** none are returned to a caller. A transient failure is retried with capped backoff; a payload that can
+  never apply is dead-lettered ([Troubleshooting](/docs/operations/troubleshooting)).
 
-### Node and packaging views
+### The read-model consumers
 
-`ApplyNodeRegistered`, `ApplyNodeProfileDeclared`, `ApplyNodeActivated`, `ApplyNodeSuspended`, `ApplyNodeRetired` fold
-node-topology events into `node_inbound_views`; `ApplyPackagingDeclared` and `ApplyPackLevelRetired` fold
-offer-availability events into `catalog_pack_levels`. They tolerate duplicates and out-of-order delivery: a status
-already seen is kept when `NodeRegistered` arrives late, a `RETIRED` node stays retired, only a profile revision newer
-than the one held replaces the limits, and a retired GTIN is never reactivated. Each is claimed in `processed_events`
-by the CloudEvents id.
+`OnOrderPlaced` and `OnNoticeDecided` fold customer-ordering's facts into `order_group_views` (the placed lines and
+witness of each group, and the ORDER's destination prefix, which customer-ordering publishes once per order; a terminal
+notice sets the status — a fact's status wins over the family). `OnNodeRegistered`, `OnNodeStatus` and `OnPrefixFact` fold
+node-topology's facts into `returns_network_nodes` and `service_area_prefixes` (the highest `assignmentVersion` wins; a
+stale write is a no-op). `NodeRegistered` is the one node fact that carries the type and the region; `NodeActivated`,
+`NodeSuspended` and `NodeRetired` carry the node id and an instant, so they move the lifecycle only (only ACTIVE
+`RETURNS_CENTER`s are `Decide` candidates). A registration applied again never demotes the lifecycle, a status fact older
+than the one applied is a no-op, and a status fact for a node never seen keeps a lifecycle-only row the registration
+completes. `OnOriginFact` folds order-sourcing's facts into `group_origins`: the lock names the fulfilling node, the
+release carries the per-item `ownerRef`s, and a merged release writes one origin per member group. They tolerate
+duplicates and out-of-order delivery — a notice before its placed event creates the row with the fact's status — and each
+is claimed in `processed_events` by the CloudEvents id
+([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models), addendum 2026-11-17).
 
 ## Queries
 
 | Query | Reads | Notes |
 | --- | --- | --- |
-| `GetInboundPlan` | `inbound_plans` | `not-found` for an unknown plan. |
-| `GetInboundShipment` | `inbound_shipments` and cartons | State, cartons, per-carton receipt status. |
-| `GetLabels` | the shipment's cartons | One label per carton: `LBL-<sscc>`, GS1-128 element string `(00)<sscc>`, a human-readable line `(00) E PPPP PPPP SSSS SSSS C`, contents summary in eaches. Available in any state. |
-| `GetSellerScorecard` | `seller_scorecard_receipts`, `seller_scorecard_occurrences` | `window` `7d` or `30d` (default `30d`, anything else `invalid-window`); unknown seller `not-found`; a suspended seller has a scorecard. A pure read: it raises nothing and never suspends the seller. |
+| `GetReturnAuthorization` | `return_authorizations` | `not-found` for an unknown id. The full standing: state, disposition, destination, tracking numbers, `pricesAbsent`, expiry. |
+| `ListReturnAuthorizations` | `return_authorizations` | One order's authorizations, keyset-paged (`orderId`, `cursor`, `limit`), newest first. |
+
+Both are pure reads: they raise nothing and never cancel an expired authorization — only a command's touch does
+(`GetReturnAuthorization` reports an authorization past its `expiresAt` with its remaining state). They are the same two
+use cases the REST handlers, the MCP tools and the A2A skill call
+([ADR 0006](/docs/adr/0006-read-only-mcp-server)).
