@@ -5,6 +5,10 @@ metadata:
   name: {{ include "customer-returns.fullname" . }}
   labels:
     {{- include "customer-returns.labels" . | nindent 4 }}
+  {{- with include "customer-returns.kongPluginNames" . }}
+  annotations:
+    konghq.com/plugins: {{ . | quote }}
+  {{- end }}
 spec:
   parentRefs:
     {{- range .Values.gatewayApi.parentRefs }}
