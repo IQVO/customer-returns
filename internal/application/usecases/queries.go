@@ -124,5 +124,5 @@ func (s *Service) expireLazily(ctx context.Context, a *returnauthorization.Retur
 
 // ErrAuthorizationExpired is what the label use case returns when the lazy
 // expiry just closed the authorization (problem type authorization-expired,
-// 422).
+// 422, replay class OUTCOME: the cancellation and its event are committed).
 var ErrAuthorizationExpired = errors.New("authorization expired")

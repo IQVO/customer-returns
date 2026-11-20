@@ -56,3 +56,11 @@ routes. Outside: the storefront-bff allowlist adds `POST
 Clients must send `Idempotency-Key` on every `POST` (already
 required here), treat `409 idempotency-key-reused` as a client bug, and read
 `Idempotency-Replayed`.
+
+## Addendum 2026-11-19: which refusals are stored
+
+The Idempotency bullet above says "2xx and 4xx are stored and replayed". That sentence is superseded by
+[ADR 0013](./0013-idempotency-replay-classes.md): a 2xx is stored, a 5xx is not, and a refusal is stored only when its
+problem type declares FINAL or OUTCOME on its catalogue entry; a RETRYABLE refusal (`group-not-shipped`,
+`no-return-destination`, `label-unavailable`, `concurrent-update`, `illegal-transition`, `not-found`,
+`validation-failed`) releases the key and a retry under it executes again. Nothing else of this decision changes.

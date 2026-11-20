@@ -19,10 +19,13 @@ fed by Kafka ([Integration](/docs/ecosystem/integration)).
 - **Errors** are `application/problem+json`; the status and slug of every error are in
   [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types).
 - **Idempotency-Key** is required on every `POST` (1 to 128 printable ASCII characters, global); a repeat with the same
-  fingerprint replays the first answer (`Idempotency-Replayed: true`), the same key on a different method, path or body
-  is `409 idempotency-key-reused` ([ADR 0010](/docs/adr/0010-fleet-rest-api-guideline)).
+  fingerprint replays the first answer when it is final for the request (`Idempotency-Replayed: true`: a success or
+  `authorization-expired`), the same key on a different method, path or body is `409 idempotency-key-reused`
+  ([ADR 0010](/docs/adr/0010-fleet-rest-api-guideline)). A refusal that depends on state that can change is released,
+  not stored: the same key executes again ([ADR 0013](/docs/adr/0013-idempotency-replay-classes)).
 - **The group must be SHIPPED or DELIVERED** (`GroupStatus.Authorizable`), as customer-ordering's facts landed in
-  `order_group_views`; otherwise `422 group-not-shipped` — the shopper retries with the same `Idempotency-Key`.
+  `order_group_views`; otherwise `422 group-not-shipped` — the shopper retries with the same `Idempotency-Key` (the refusal is not stored,
+  so the retry executes against the view as it is then).
 - **The disposition is decided here** by `Decide`, a pure function over the lines' caller-declared prices, the method
   and the read models' destinations; the caller never chooses it.
 - **Expiry is checked first on every command touch** (label, outcome, cancel — `expireLazily`): past

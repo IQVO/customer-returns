@@ -54,11 +54,15 @@ The `:verb` actions share a chi pattern per resource (`/sellers/{sellerAction}`,
   are normalised), SSCCs 18, both with a GS1 mod-10 check digit.
 - **`Idempotency-Key`.** Required on every `POST` (1 to 128 characters), implemented by
   `internal/adapters/inbound/http/idempotency.go`. The key is global and the request fingerprint is method + path +
-  SHA-256 of the body. The same fingerprint replays the stored answer for 24 h (a 4xx replays too) with the response
+  SHA-256 of the body. The same fingerprint replays the stored answer for 24 h with the response
   header `Idempotency-Replayed: true`; the same key on a different method, path or body is
   `409 idempotency-key-reused`; a missing key is `400 idempotency-key-required` and a key that is not 1 to 128
-  printable ASCII characters is `400 idempotency-key-invalid`. A 5xx is never stored. See
-  [ADR 0010](/docs/adr/0010-fleet-rest-api-guideline).
+  printable ASCII characters is `400 idempotency-key-invalid`. What is stored is decided by the replay class of the
+  answer: a 2xx and `authorization-expired` (OUTCOME: the lazy cancellation commits with it) are replayed; a refusal
+  that depends on state that can change (RETRYABLE: `group-not-shipped`, `no-return-destination`, `label-unavailable`,
+  `concurrent-update`, `illegal-transition`, `not-found`, `validation-failed`) is not stored and its key is released, so
+  the same key and body executes again; a 5xx is never stored. See
+  [ADR 0013](/docs/adr/0013-idempotency-replay-classes) and [ADR 0010](/docs/adr/0010-fleet-rest-api-guideline).
 - **Errors** are RFC 9457 `application/problem+json` with `type` = the bare slug (not a URL), `title`, `status`,
   `detail` and `instance`. The slugs are `not-found`, `illegal-transition`, `concurrent-update`, `validation-failed`,
   `invalid-window`, `seller-exists`, `seller-suspended`, `node-cannot-receive`, `sscc-not-unique`, `invalid-sscc`,
