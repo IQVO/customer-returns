@@ -149,3 +149,65 @@ func TestOptionalInputsAreNotRequired(t *testing.T) {
 		}
 	}
 }
+
+// listPage calls list_return_authorizations and decodes its structured page.
+func listPage(t *testing.T, h *harness, args string) (ids []string, nextCursor string) {
+	t.Helper()
+	res, err := callTool(t, h, "list_return_authorizations", args)
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if res.IsError {
+		raw, _ := json.Marshal(res.Content)
+		t.Fatalf("tool errored: %s", raw)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
+	var page struct {
+		Items []struct {
+			AuthorizationID string `json:"authorizationId"`
+		} `json:"items"`
+		NextCursor string `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		t.Fatalf("decode page %s: %v", raw, err)
+	}
+	for _, item := range page.Items {
+		ids = append(ids, item.AuthorizationID)
+	}
+	return ids, page.NextCursor
+}
+
+func TestListReturnAuthorizationsCursorReachesTheNextPage(t *testing.T) {
+	h := newHarness(t)
+	first := h.seedReturn(t, "ord-1", "NEAREST_RETURNS_CENTER")
+	second := h.seedReturn(t, "ord-1", "NEAREST_RETURNS_CENTER")
+
+	page1, next := listPage(t, h, `{"orderId":"ord-1","limit":1}`)
+	if len(page1) != 1 || next == "" {
+		t.Fatalf("page 1 = %v next %q, want one item and a nextCursor", page1, next)
+	}
+	cursor, _ := json.Marshal(next)
+	page2, next2 := listPage(t, h, `{"orderId":"ord-1","limit":1,"cursor":`+string(cursor)+`}`)
+	if len(page2) != 1 || page2[0] == page1[0] {
+		t.Fatalf("page 2 = %v after page 1 %v: the cursor was not applied", page2, page1)
+	}
+	got := map[string]bool{page1[0]: true, page2[0]: true}
+	if !got[string(first)] || !got[string(second)] || next2 != "" {
+		t.Fatalf("pages %v + %v (next %q) do not cover %s and %s exactly", page1, page2, next2, first, second)
+	}
+}
+
+func TestListReturnAuthorizationsMalformedCursorIsValidationFailed(t *testing.T) {
+	h := newHarness(t)
+	h.seedReturn(t, "ord-1", "NEAREST_RETURNS_CENTER")
+	for _, cursor := range []string{"broken", "not-a-time|ret-1", "2026-11-14T10:00:00Z|"} {
+		res, err := callTool(t, h, "list_return_authorizations", `{"orderId":"ord-1","cursor":"`+cursor+`"}`)
+		if err != nil {
+			t.Fatalf("call: %v", err)
+		}
+		raw, _ := json.Marshal(res.Content)
+		if !res.IsError || !strings.Contains(string(raw), "validation-failed") {
+			t.Fatalf("cursor %q answered %s, want an isError validation-failed", cursor, raw)
+		}
+	}
+}
