@@ -25,3 +25,4 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0010](./0010-fleet-rest-api-guideline.md) | Adopt the fleet REST API guideline | Accepted (2026-11-01) |
 | [0011](./0011-agent-authority-levels-and-complete-mcp-surface.md) | Agent authority levels and complete MCP surface | Accepted (2026-11-02) |
 | [0012](./0012-analytics-read-side-and-return-rate-facts.md) | Analytics read side and return-rate facts | Accepted (2026-11-17) |
+| [0013](./0013-idempotency-replay-classes.md) | Every problem type has a replay class; a retryable refusal is not stored | Accepted (2026-11-19) |
