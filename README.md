@@ -26,10 +26,11 @@ Page map (source under `docs/docs/`):
 |---|---|
 | Overview | [Introduction](docs/docs/overview/introduction.md), [Architecture](docs/docs/overview/architecture.md), [Runtime](docs/docs/overview/runtime.md), [Quickstart](docs/docs/overview/quickstart.md) |
 | Operations | [Configuration](docs/docs/operations/configuration.md), [Runbook](docs/docs/operations/runbook.md), [Observability](docs/docs/operations/observability.md), [Troubleshooting](docs/docs/operations/troubleshooting.md), [Before first release](docs/docs/operations/before-first-release.md) |
-| Development | [Testing](docs/docs/development/testing.md) |
+| Development | [Testing](docs/docs/development/testing.md), [Consumer contract testing](docs/docs/development/contract-testing.md) |
+| Domain design | [DDD artifacts](docs/docs/ddd/ddd-artifacts.md) (canvases, context map, EventStorming, use cases, ER diagram, ...) |
 | Ecosystem | [Integration](docs/docs/ecosystem/integration.md), [MCP tools](docs/docs/mcp/tools.md) |
 | API reference | [Overview](docs/docs/api-reference/overview.md) (REST pages generated from `apis/openapi.yaml`), [Events](docs/docs/api-reference/events.md) |
-| Decisions | [ADR index](docs/adr/index.md), decisions 0001 to 0012 |
+| Decisions | [ADR index](docs/adr/index.md), decisions 0001 to 0013 (no 0007) |
 
 The design source is the retail-network pages on warehouse-docs:
 
@@ -86,7 +87,7 @@ internal/
   architecture/              the fitness tests below
   bootretry/ testing/        boot retry, shared test helpers
 apis/                        openapi.yaml (REST) + asyncapi.yaml (events)
-docs/adr/                    11 ADRs + index
+docs/adr/                    12 ADRs + index
 features/                    godog feature files
 charts/customer-returns/     the Helm chart
 ```
@@ -165,7 +166,7 @@ go run ./cmd/api                           # migrations run at boot; REST on :80
 
 ## Observability
 
-Logs, metrics and traces follow the fleet standard ([ADR 0008](docs/adr/0008-fleet-observability-standard.md)): JSON logs on stdout carry `trace_id`/`span_id` and a `request_id`; `cmd/api`, `cmd/mcp` and `cmd/a2a` export OTLP/gRPC to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT`; export never blocks, so no Collector costs telemetry, nothing else) with HTTP request duration, Go runtime metrics and the business counter `customer_returns.return.authorized` (`outcome` = `authorized` with `disposition`, or `rejected` with the problem `reason`); the trace continues across Kafka in the `traceparent` header of each published event and is picked up by the consumers. The chart's `otel.*` values render the env.
+Logs, metrics and traces follow the fleet standard ([ADR 0008](docs/adr/0008-fleet-observability-standard.md)): JSON logs on stdout carry `trace_id`/`span_id` and a `request_id`; all five binaries (`cmd/api`, `cmd/mcp`, `cmd/a2a`, `cmd/projector`, `cmd/reports`) export OTLP/gRPC to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT`; export never blocks, so no Collector costs telemetry, nothing else) with HTTP request duration, Go runtime metrics and, from `cmd/api`, the business counter `customer_returns.return.authorized` (`outcome` = `authorized` with `disposition`, or `rejected` with the problem `reason`); the trace continues across Kafka in the `traceparent` header of each published event and is picked up by the consumers. The chart's `otel.*` values render the env.
 
 ## API
 
@@ -174,7 +175,7 @@ REST contract: [`apis/openapi.yaml`](apis/openapi.yaml). Every `POST` takes `Ide
 What it does, route by route:
 
 - **Authorize**: `POST /return-authorizations` — body `{orderId, groupNo, lines[]{lineNo, unitPriceCents?}, reason, method?, pickupWindowStart?, pickupWindowEnd?}`. The group must be SHIPPED or DELIVERED (`group-not-shipped`, the view may lag — retry with the same key); the disposition is decided here (`KEEP`, `NEAREST_RETURNS_CENTER` or `ORIGIN_NODE`; `no-return-destination` when nothing fits). Prices are the storefront's facts: stored, echoed, never published; an absent price makes KEEP impossible and is returned as `pricesAbsent: true`.
-- **Read**: `GET /return-authorizations/{authorizationId}` (an expired authorization is lazily cancelled by the read) and `GET /return-authorizations?orderId=&cursor=&limit=` (keyset page, newest first).
+- **Read**: `GET /return-authorizations/{authorizationId}` (a pure read: an authorization past `expiresAt` is cancelled lazily by the next command that touches it, not by the read) and `GET /return-authorizations?orderId=&cursor=&limit=` (keyset page, newest first).
 - **Cancel**: `POST /return-authorizations/{authorizationId}/cancellations` — the shopper's cancellation while AUTHORIZED.
 - **Label**: `POST /return-authorizations/{authorizationId}/labels` — body `{packageNo}` (1..5); asks the shipping context's `POST /return-labels` route (the one in-org call, [ADR 0005](docs/adr/0005-the-reverse-label-route.md)), links the tracking number and publishes `ReturnLabelIssued`; the request names the return's destination by the authorization's `destinationNodeId` and carries no postal prefix (the label owner derives it); `422 label-unavailable` while the route is not configured or refuses — tolerant, never a 500.
 - `GET /return-authorizations/{id}/events` is deliberately NOT built: the audit trail IS the event stream.
@@ -214,11 +215,11 @@ Deploy with `charts/customer-returns`. Values that matter: `config.*` (the env a
 - **Mutation**: `make mutation` (blocking subset) / `make mutation-full` — gremlins, config in `.gremlins.yaml`.
 - **Architecture fitness**: `make arch-test` — `internal/architecture/` (hexagonal rule, CloudEvents-only, catalogue, Kafka rules, read-only MCP/A2A, the PII sensor).
 
-CI (`.github/workflows/ci.yml`) runs `lint`, `guide-lint`, `complexity`, `test`, `bdd`, `integration`, `mutation-fast`, `api-lint`, `vuln`, `helm-lint`, `chart-tests` and `arch-test` on every push and PR; the exhaustive `mutation` job and the advisory `drift` sensor run on schedule; `docker-publish` pushes the image and `release` tags and publishes the chart.
+CI (`.github/workflows/ci.yml`) runs `lint`, `guide-lint`, `complexity`, `file-length`, `test`, `bdd`, `integration`, `mutation-fast`, `api-lint`, `vuln`, `helm-lint`, `chart-tests`, `arch-test` and `pinned-contracts` on every push and PR; the exhaustive `mutation` job and the advisory `drift` sensor run on schedule; `docker-publish` pushes the image and `release` tags and publishes the chart.
 
 ## Architecture Decision Records
 
-[docs/adr/](docs/adr/index.md) — index plus 11 ADRs (0001-0006 and 0008-0012: bounded context, aggregates and invariants, consumed contracts and local read models, CloudEvents envelope and type catalogue, the reverse-label route, read-only MCP server, fleet observability standard, A2A inbound adapter, fleet REST API guideline, agent authority levels, analytics read side and return-rate facts).
+[docs/adr/](docs/adr/index.md) — index plus 12 ADRs (0001-0006 and 0008-0013: bounded context, aggregates and invariants, consumed contracts and local read models, CloudEvents envelope and type catalogue, the reverse-label route, read-only MCP server, fleet observability standard, A2A inbound adapter, fleet REST API guideline, agent authority levels, analytics read side and return-rate facts, idempotency replay classes). There is no 0007: it was never written, the number is reserved for a web remote this repository does not have (ADRs 0012 and 0013 say so).
 
 ## License
 

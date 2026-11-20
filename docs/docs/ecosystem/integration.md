@@ -8,11 +8,12 @@ description: "Every upstream and downstream of customer-returns: protocol, contr
 
 # Integration
 
-customer-returns talks to its neighbours through Kafka and its own interfaces only. It makes **no synchronous call to
-any sibling context** (no REST, MCP or A2A client): the chart has no `*Url` keys, the A2A adapter is pinned
-read-only with no outbound client (`TestA2AAgentIsReadOnlyAndHasNoOutboundClient`), and the node and packaging facts it
-needs arrive as events into local tables ([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models)). A plan
-made against a table that has not caught up is refused, not slowed.
+customer-returns talks to its neighbours through Kafka and its own interfaces, with exactly **one** synchronous call to
+a sibling context: the shipping context's reverse-label route `POST /return-labels`
+(`internal/adapters/outbound/labels`, [ADR 0005](/docs/adr/0005-the-reverse-label-route)), off while
+`SHIPPING_LABELS_URL` is empty. The order, node and origin facts it needs arrive as events into local tables
+([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models)); an authorization made against a view that has not
+caught up is refused (`group-not-shipped`, `no-return-destination`), not slowed.
 
 Contracts: `apis/asyncapi.yaml` for events, `apis/openapi.yaml` for REST. Every message is CloudEvents 1.0 in structured
 mode, built and decoded only in `internal/adapters/kafka/cloudevents`; the type is
@@ -20,57 +21,60 @@ mode, built and decoded only in `internal/adapters/kafka/cloudevents`; the type 
 
 ```mermaid
 flowchart LR
-    NT["node-topology<br/>topic retailnetwork.node-topology.events"]
-    OA["offer-availability<br/>topic retailnetwork.offer-availability.events"]
-    VC["vendor-connectivity<br/>topic retailnetwork.vendor-connectivity.events"]
-    SI["customer-returns<br/>cmd/api"]
-    NP["node-performance"]
-    VC2["vendor-connectivity<br/>InboundShipmentView"]
-    AN["analytics<br/>no in-org consumer"]
-    SEL["sellers, console remote<br/>REST"]
+    CO["customer-ordering<br/>retailnetwork.customer-ordering.events"]
+    NT["node-topology<br/>retailnetwork.node-topology.events"]
+    OS["order-sourcing<br/>retailnetwork.order-sourcing.events"]
+    VC["vendor-connectivity<br/>retailnetwork.vendor-connectivity.events"]
+    CR["customer-returns<br/>cmd/api"]
+    SHP["shipping context<br/>POST /return-labels"]
+    OA["offer-availability"]
+    VC2["vendor-connectivity"]
+    PRJ["cmd/projector<br/>(own analytics, optional)"]
+    SF["storefront<br/>REST"]
     AG["agents<br/>MCP and A2A"]
-    NT -->|"5 node events"| SI
-    OA -->|"2 packaging events"| SI
-    VC -->|"InboundReceiptSubmitted"| SI
-    SI -->|"Labelled, Shipped, Received<br/>topic retailnetwork.customer-returns.events"| VC2
-    SI -->|"InboundShipmentShipped"| NP
-    SI -->|"6 analytics events<br/>topic retailnetwork.customer-returns.analytics"| AN
-    SEL -->|"REST :8080"| SI
-    AG -->|"cmd/mcp :8090, cmd/a2a :8093 (read-only)"| SI
+    CO -->|"CustomerOrderPlaced, ShopperNoticeDecided"| CR
+    NT -->|"5 node and service-area events"| CR
+    OS -->|"FulfillmentReleasedToNode, FulfillmentLocked"| CR
+    VC -->|"VendorReturnOutcomeSubmitted"| CR
+    CR -->|"reverse label (sync)"| SHP
+    CR -->|"ReturnCompleted"| OA
+    CR -->|"ReturnAuthorized, ReturnLabelIssued, ReturnCancelled"| VC2
+    CR -->|"ReturnAuthorized, ReturnCompleted"| PRJ
+    SF -->|"REST :8080"| CR
+    AG -->|"cmd/mcp :8090, cmd/a2a :8093 (read-only)"| CR
 ```
 
 Source: `internal/adapters/inbound/kafka/consumers.go`, `internal/adapters/outbound/kafka/encoder.go`,
-`apis/asyncapi.yaml`, and the consumer settings in `warehouse-infra` `helm-values/vendor-connectivity.yaml` and
-`node-performance.yaml`.
+`internal/adapters/outbound/labels/client.go`, `apis/asyncapi.yaml`, and the consumers on `origin/develop` of
+`IQVO/offer-availability` (`internal/adapters/inbound/kafka/returns_consumer.go`) and `IQVO/vendor-connectivity`
+(`internal/adapters/inbound/kafka/returns_consumers.go`).
 
 ## Upstream: what customer-returns consumes
 
-Three consumers run in `cmd/api`, each under a mandatory stable consumer group ([Runbook](/docs/operations/runbook)).
+Four consumers run in `cmd/api`, each under a mandatory stable consumer group ([Runbook](/docs/operations/runbook)).
 Each message is claimed in `processed_events` by its CloudEvents id in the same transaction as its effect, so delivery
 is at-least-once with an atomic effect.
 
 | Producer | Topic | Event types consumed | Effect |
 | --- | --- | --- | --- |
-| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | Folded into `node_inbound_views`: node type, status and inbound limits (`maxCartonWeightG`, `maxCartonDims`, `acceptsPallets`, `requiresSscc`). |
-| offer-availability | `retailnetwork.offer-availability.events` | `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemPackagingDeclared`, `CatalogItemPackLevelRetired` | Folded into `catalog_pack_levels` (item, level, GTIN, units per pack, active flag). |
-| vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.inboundreceipt.InboundReceiptSubmitted` | Applied to the shipment: closes it and records discrepancies and compliance violations ([Use cases](/docs/ddd/use-cases)). |
+| customer-ordering | `retailnetwork.customer-ordering.events` | `com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced`, `com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided` | Folded into `order_group_views` (group status, destination postal prefix, lines). |
+| node-topology | `retailnetwork.node-topology.events` | `com.retailnetwork.logistics.node-topology.node.NodeRegistered`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned` | Folded into `returns_network_nodes` and `service_area_prefixes` (`ReturnsNetworkView`). |
+| order-sourcing | `retailnetwork.order-sourcing.events` | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode`, `FulfillmentLocked` | Folded into `group_origins` (fulfilling node, per-item owners). |
+| vendor-connectivity | `retailnetwork.vendor-connectivity.events` | `com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted` | The first fitting outcome completes the authorization and publishes `ReturnCompleted`; every outcome is recorded in `return_outcomes`. An outcome for an unknown or closed authorization is recorded and acknowledged, never a consumer error ([Use cases](/docs/ddd/use-cases)). |
 
-Payloads are decoded tolerantly: unknown fields are ignored, and a type this consumer has no handler for is committed
-past without a log line.
+Payloads are decoded tolerantly: unknown fields are ignored, and a type a consumer has no handler for is committed past
+without a log line.
 
-**Failure behaviour (all three consumers).** The offset is committed only after the effect committed. A transient
+**Failure behaviour (all four consumers).** The offset is committed only after the effect committed. A transient
 failure (database error) is retried with capped exponential backoff, 200 ms doubling to 5 s, up to 5 attempts, then the
 message goes to `<topic>.dlq` with the headers `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset`,
-`x-dlq-error` and `x-dlq-failed-at`. A message that can never be applied is dead-lettered at once: not a valid
-CloudEvent is skipped and logged at WARN; an undecodable payload, a value the domain refuses, an illegal transition, or a
-receipt for a shipment this service does not know are dead-lettered. The dead-letter publish is itself retried forever,
-so a message is never dropped. A lost broker connection is retried up to 10 consecutive times, then the consumer ends and
-the process exits non-zero so the orchestrator restarts it. Out-of-order node and packaging events are tolerated (see
-[Use cases](/docs/ddd/use-cases)).
+`x-dlq-error` and `x-dlq-failed-at`. A message that is not a valid CloudEvent is skipped and logged at WARN; a payload
+that can never be applied is dead-lettered at once. A lost broker connection is retried up to 10 consecutive times, then
+the consumer ends and the process exits non-zero so the orchestrator restarts it.
 
-**Cold start.** Until node-topology has published a node as `ACTIVE`, plans for it are refused `node-cannot-receive`;
-until offer-availability has published a CASE level, a case-packed carton for that item is refused
-`case-qty-mismatches-gtin`. There is no live lookup to fall back on.
+**Cold start.** Until customer-ordering has published the group as SHIPPED or DELIVERED, an authorization is refused
+`group-not-shipped`; until node-topology has published an ACTIVE returns centre for the region (or order-sourcing the
+origin node), it is refused `no-return-destination`. There is no live lookup to fall back on.
 
 ## Downstream: what customer-returns publishes
 
@@ -79,42 +83,30 @@ relay (`OUTBOX_RELAY_INTERVAL`, rows retried up to `OUTBOX_MAX_ATTEMPTS`). Write
 the topic on first write; delivery is at-least-once with a stable id. See [Events](/docs/api-reference/events) for every
 payload.
 
-| Topic | Events | Known consumers |
+| Topic | Events | Known consumers (`origin/develop`) |
 | --- | --- | --- |
-| `retailnetwork.customer-returns.events` | `InboundShipmentLabelled`, `InboundShipmentShipped`, `InboundShipmentReceived` | vendor-connectivity (builds the `InboundShipmentView` it serves on the Vendor API); node-performance (`InboundShipmentShipped`, the start of its inbound timeliness metric) |
-| `retailnetwork.customer-returns.analytics` | `SellerOnboarded`, `SellerSuspended`, `SellerReinstated`, `InboundPlanConfirmed`, `InboundDiscrepancyRecorded`, `SellerComplianceViolationRecorded` | none in the organisation (published for analytics only) |
+| `retailnetwork.customer-returns.events` | `ReturnAuthorized`, `ReturnLabelIssued`, `ReturnCompleted`, `ReturnCancelled` | offer-availability (`ReturnCompleted`, the restock fact); vendor-connectivity (`ReturnAuthorized`, `ReturnLabelIssued`, `ReturnCancelled`); this context's own `cmd/projector` (`ReturnAuthorized`, `ReturnCompleted`, ADR 0012) |
 
-The consumer groups of the downstream services are in `warehouse-infra` (`node-performance-customer-returns` for
-node-performance; vendor-connectivity's values comment names the same stream). If Kafka is down the writes are still
-accepted and the events wait in the outbox.
+`retailnetwork.customer-returns.analytics` is declared in the encoder (`TopicAnalytics`) but no event is published to it
+in v1. If Kafka is down the writes are still accepted and the events wait in the outbox.
 
 ## Interfaces it exposes
 
 | Interface | Binary | Address | Consumers |
 | --- | --- | --- | --- |
-| REST seller API | `cmd/api` | `:8080`; Kong route `/api/customer-returns` with the prefix stripped (`warehouse-infra`) | sellers, the console remote `customer_returns_mfe` (`web/`, served at `/mfes/customer-returns/`) |
-| MCP (read-only, Streamable HTTP) | `cmd/mcp` | `:8090`, `/mcp`; Kong route `/api/mcp/customer-returns` | the warehouse ops agent (`http://customer-returns-mcp.warehouse-systems.svc.cluster.local:8090/mcp`) |
+| REST returns API | `cmd/api` | `:8080`; Kong route `/api/customer-returns` with the prefix stripped (`warehouse-infra`) | the storefront |
+| Reports (read-only) | `cmd/reports` | `:8092`, `/reports/*`; Kong route `/api/customer-returns/reports` when `analytics.reports.route.enabled` | analysts, dashboards |
+| MCP (read-only, Streamable HTTP) | `cmd/mcp` | `:8090`, `/mcp`; Kong route `/api/mcp/customer-returns` | agents |
 | A2A (read-only, JSON-RPC 2.0) | `cmd/a2a` | `:8093`, `/` and `/a2a`; Agent Card `/.well-known/agent-card.json`; Kong route `/api/a2a/customer-returns` | any delegating agent |
 
-All three are unauthenticated. See [API reference](/docs/api-reference) and [MCP tools](/docs/mcp/tools).
+All four are unauthenticated. See [API reference](/docs/api-reference) and [MCP tools](/docs/mcp/tools).
 
 ## Edges that do not exist
 
-- **The warehouse-systems fleet.** The `network-fulfillment` side never calls this context and never consumes its
-  topics. Per the design the fleet reads a shipment's carton manifest through the Vendor API of vendor-connectivity only
-  (README and `CLAUDE.md`: this service belongs to the retail network, not to the fleet). Nothing in this repository
-  references a fleet service.
-- **The vendor.** A vendor never calls customer-returns; its carton-level receipt reaches this service only as
-  `InboundReceiptSubmitted` from vendor-connectivity. The OpenAPI contract says the same.
-- **Synchronous reads of node-topology or offer-availability.** None: local read models only.
-- **Outbound A2A or MCP clients.** None. This context is delegated to and never delegates.
-- **Payments, freight, placement advice, EDI.** Not modelled; there is no integration to them.
-- **Downstream consumers of the analytics topic.** None inside the organisation.
-- **Item liveness.** `CatalogItemCreated` and `CatalogItemDiscontinued` are not consumed, so a plan line is not checked
-  against whether the item is live.
-
-## Discrepancies found
-
-- `internal/adapters/inbound/kafka/kafka.go` and `deadletter.go` still mention order-sourcing's
-  `FulfillmentReleasedToNode` and `FulfillmentCancelled` and a `retailnetwork.order-sourcing.events.dlq` example in their
-  comments. The code consumes no order-sourcing topic.
+- **The warehouse-systems fleet.** This service belongs to the retail network; nothing in this repository references a
+  fleet service.
+- **Synchronous reads of customer-ordering, node-topology or order-sourcing.** None: local read models only.
+- **Outbound A2A or MCP clients.** None (`TestA2AAgentIsReadOnlyAndHasNoOutboundClient`). This context is delegated to
+  and never delegates.
+- **Money.** No event carries a unit price; refunds are customer-payments' and not integrated here.
+- **Downstream consumers of the analytics topic.** None (nothing is published there).

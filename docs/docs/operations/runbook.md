@@ -8,28 +8,28 @@ description: "Deploying and operating customer-returns: components, probes, migr
 
 # Runbook
 
-**customer-returns** is the retail network's front door for stock coming in from sellers:
-a seller is onboarded, declares an inbound plan in eaches, packs cartons identified by an
-SSCC, has the label data produced and ships; the vendor's carton-level receipt closes the
-shipment and every discrepancy and compliance violation is recorded, never corrected.
+**customer-returns** is the retail network's shopper-facing returns front door: it authorizes the
+return of a shipped or delivered order group, decides its disposition (`KEEP`, `NEAREST_RETURNS_CENTER`
+or `ORIGIN_NODE`), links the reverse label from the shipping context and completes the return from the
+returns centre's graded outcome.
 Sources: [ADR 0002](/docs/adr/0002-aggregates-and-invariants) (aggregates),
 [0003](/docs/adr/0003-consumed-contracts-and-local-read-models) (consumed contracts),
 [0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue) (event catalogue),
-[0005](/docs/adr/0005-the-reverse-label-route) (scorecard) and
+[0005](/docs/adr/0005-the-reverse-label-route) (the reverse-label route) and
 [Runtime](/docs/overview/runtime) (probes, shutdown, outbox).
 
 ## Runtime shape
 
-The chart `charts/customer-returns` deploys up to four components. The `api` Deployment runs `cmd/api` and
-is always on (`replicaCount: 1`, HPA off by default). Three are optional and off by default: `mcp`
-(`cmd/mcp`, `mcp.enabled`), `a2a` (`cmd/a2a`, `a2a.enabled`) and `frontend` (the nginx pod serving the web remote,
-`frontend.enabled`). There is no projector or reports component. Inside the `api` process (`cmd/api/main.go`, `wire_adapters.go`,
+The chart `charts/customer-returns` deploys up to five components. The `api` Deployment runs `cmd/api` and
+is always on (`replicaCount: 1`, HPA off by default). Four are optional and off by default: `mcp`
+(`cmd/mcp`, `mcp.enabled`), `a2a` (`cmd/a2a`, `a2a.enabled`), and `analytics-projector` and `analytics-reports`
+(`cmd/projector`, `cmd/reports`, both behind `analytics.enabled`; see
+[Analytics read side](#analytics-read-side-adr-0012-default-off)). There is no web or frontend component. Inside the `api` process (`cmd/api/main.go`, `wire_adapters.go`,
 `wire_background.go`):
 
-- REST seller API on `:8080` (`internal/adapters/inbound/http/server.go`): sellers, inbound
-  plans, inbound shipments and cartons, label data, the seller compliance scorecard
-  (`GET /sellers/{id}/scorecard`, a pure read); every write behind an
-  `Idempotency-Key` header (24h replay).
+- REST returns API on `:8080` (`internal/adapters/inbound/http/server.go`): authorize, read,
+  list, cancel and label return authorizations; every write behind an `Idempotency-Key`
+  header (24h replay, [ADR 0013](/docs/adr/0013-idempotency-replay-classes)).
 - Transactional outbox relay draining `outbox_events` to Kafka
   (`internal/adapters/outbound/outbox/relay.go`).
 - Four Kafka consumers, one per producer topic (ADR 0003): order
@@ -49,8 +49,7 @@ the orchestrator restarts it (`watchWorkers`); it never sits "alive" with a dead
   holds a session advisory lock, which breaks behind a transaction-pooling proxy).
   Both from the Secret `customer-returns-db` (chart `database.existingSecret`; the
   migrations key is `optional: true`, the binary falls back to `DATABASE_URL`).
-  Embedded migrations run at boot with backoff (`internal/bootretry`). The SSCC serial is
-  the Postgres sequence `sscc_serial_seq`.
+  Embedded migrations run at boot with backoff (`internal/bootretry`).
 - **Kafka** - `KAFKA_BROKERS` (required): relay sink, the four consumers, `/readyz`.
   Topics are auto-created by the first writer (`AllowAutoTopicCreation: true`,
   `internal/adapters/outbound/kafka/writer.go`). Publishes
@@ -149,15 +148,14 @@ safe: an event id already in `processed_events` is skipped.
   Loki label `app`, so query Loki with `{namespace="warehouse-systems",
   app="customer-returns"}`.
 - Metrics are OpenTelemetry pushes to the Collector ([Observability](/docs/operations/observability)): HTTP
-  request duration, Go runtime metrics and the business counter `customer_returns.shipment.shipped`. There is no
+  request duration, Go runtime metrics and the business counter `customer_returns.return.authorized`. There is no
   instrument for consumer lag or outbox depth; read those from Kafka and from `outbox_events`
   (`published_at IS NULL`) directly.
 
 ## Failure modes
 
 - **Pod crash-loops.** Diagnosis: `kubectl -n warehouse-systems logs deploy/customer-returns`
-  - a missing/invalid env var is a boot error naming the variable (including an
-  `SSCC_COMPANY_PREFIX` that is not 6 to 11 digits); migrations and the first ping retry
+  - a missing/invalid env var is a boot error naming the variable; migrations and the first ping retry
   with backoff before the process gives up. The pod also restarts by design when the
   relay, a consumer or the loop dies. Action: fix the ConfigMap/Secret (or the
   dependency), then `rollout restart`.
@@ -187,16 +185,12 @@ safe: an event id already in `processed_events` is skipped.
   (`TestADeadLetteredFactWasNeverClaimedAndAppliesWhenRedelivered`, the inbox contract in
   `internal/testing/repocontract`). So a dead letter is applied by delivering it again once
   the cause is fixed: [Replaying the node-topology dead letters](#replaying-the-node-topology-dead-letters).
-- **A seller reports `node-cannot-receive` for a node that exists.** The node view is
-  fed by node-topology events: check that the node was `NodeActivated` and has a type with
-  the INBOUND capability (`node_inbound_views`), and that the node consumer is not behind.
-- **`case-qty-mismatches-gtin` for a correct case.** The pack level comes from
-  offer-availability events (`catalog_pack_levels`): check the CASE level is `active` with
-  the expected `units_per_pack`.
-- **SSCC serial range.** The sequence `sscc_serial_seq` must stay below the serial range of the
-  configured prefix (`16 - len(prefix)` digits); an exhausted range fails carton creation
-  with an internal error naming `sscc serial range exhausted`. Never reset the sequence:
-  issued SSCCs are recorded in `sscc_registry` and must stay unique.
+- **Authorizations refused `group-not-shipped` for a shipped group.** `order_group_views` is fed
+  by customer-ordering events: check the group's `status` there and that the order consumer is
+  not behind. The caller retries with the same key (the refusal is RETRYABLE, never stored).
+- **Authorizations refused `no-return-destination`.** No ACTIVE `RETURNS_CENTER` serves the
+  group's region in `returns_network_nodes`/`service_area_prefixes` and no origin node is in
+  `group_origins`: check the topology and sourcing consumers, and the dead-letter replay below.
 
 ## Replaying the node-topology dead letters
 
@@ -316,36 +310,6 @@ is not unsafe, it only fails labels: a node the provider does not know is refuse
    itself. The provider does not keep that refusal under the `Idempotency-Key`, and the key is the deterministic
    `<authorizationId>:<packageNo>`, so the shopper's retry is served once the provider knows the node. Nothing is to be
    repaired on this side.
-
-## Seller compliance scorecard
-
-`GET /sellers/{id}/scorecard?window=7d|30d` (default `30d`; ADR 0005) is a read over two
-tables, `seller_scorecard_receipts` (one row per closed shipment) and
-`seller_scorecard_occurrences` (one row per discrepancy or compliance violation), both
-written in the same transaction as the vendor receipt that raised them. It publishes
-nothing and changes nothing: the `complianceTier` (`GOOD`, `WATCH`, `AT_RISK`) is for people,
-and suspending a seller stays the manual `POST /sellers/{id}/suspensions`.
-
-- **Reading a scorecard with a database shell.** Facts are dated by `recorded_at` (when this
-  service applied the receipt, not the vendor's `receivedAt`). A seller's last 30 days:
-  `SELECT code, count(*) FROM seller_scorecard_occurrences WHERE seller_id = '<id>' AND
-  occurrence_type = 'DISCREPANCY' AND recorded_at >= now() - interval '30 days' GROUP BY code;`
-- **`400 invalid-window`.** The `window` query value is not `7d` or `30d`. **`404 not-found`**
-  means the seller was never onboarded; a suspended seller has a scorecard.
-- **A rate is missing from the answer.** By design: no shipment closed in the window
-  (`discrepancyRatePerShipment`) or no carton was reported (`receiptAccuracyRate`). It is never
-  `0` or `NaN`.
-- **A seller looks worse (or better) than the shipments it sees.** Discrepancies count when they
-  are recorded, shipments when they close, so a partial receipt shows its discrepancies first
-  (ADR 0005 Consequences). The tier is the worst of three signals; the thresholds are the
-  constants of `internal/domain/scorecard/scorecard.go` and the table in ADR 0005 A3. Changing
-  one needs a new ADR, not a config change: there is no environment variable for it.
-- **Scorecard counts look empty after an upgrade.** Migration `0002` backfills from the
-  published events in `outbox_events`; if rows were deleted from the outbox before the upgrade,
-  those facts are not in the scorecard. Nothing else rebuilds them.
-- **Failure.** A receipt whose scorecard facts cannot be written fails as a whole (shipment,
-  outbox and inbox roll back together) and is retried by the consumer like any transient
-  database error.
 
 ## Operational actions
 
