@@ -17,8 +17,9 @@ Shared conventions, from the code:
 - Write routes pass the HTTP idempotency middleware first (`Idempotency-Key`, global, `409` on reuse); it is omitted
   from the diagrams.
 - Consumers claim the CloudEvents `id` in `processed_events` in the same transaction as their effect.
-- Every command touch re-checks expiry first (`expireLazily`): past `expiresAt` the authorization is cancelled with
-  `EXPIRED` and the call answers `authorization-expired`; a pure read reports the remaining state without cancelling.
+- Expiry is lazy: past `expiresAt`, `IssueLabel` cancels the authorization with `EXPIRED` (`expireLazily`) and answers
+  `authorization-expired`; `CancelReturn` cancels it with `EXPIRED` and answers `200`; the outcome consumer expires it
+  first and records the outcome as a fact. A pure read reports the remaining state without cancelling.
 - Event names are short; full types are on the [Event catalogue](/docs/api-reference/events).
 
 ## 1. AuthorizeReturn
@@ -146,20 +147,24 @@ sequenceDiagram
     participant R as AuthRepo
     participant OB as Outbox
     H->>UC: CancelReturn(authorizationId)
-    UC->>A: Get, expiry checked first
-    alt expired on this touch
+    UC->>R: Get
+    alt AUTHORIZED, past expiresAt
+        UC->>A: Cancel(EXPIRED)
+        A-->>UC: CANCELLED and ReturnCancelled
+        UC->>R: Save(expected version)
         UC->>OB: Append(ReturnCancelled EXPIRED)
-        UC-->>H: 422 authorization-expired
-    else still AUTHORIZED
+        UC-->>H: 200 authorization CANCELLED
+    else AUTHORIZED, not expired
         UC->>A: Cancel(SHOPPER_REQUESTED)
         A-->>UC: CANCELLED and ReturnCancelled
         UC->>R: Save(expected version)
         UC->>OB: Append(event)
         UC-->>H: 200 authorization
-    else IN_TRANSIT or later
+    else not AUTHORIZED (already closed)
         UC-->>H: 409 illegal-transition
     end
 ```
 
-Source: `internal/application/usecases/queries.go` (`CancelReturn`, `expireLazily`). There is no sweeper: the lazy
-expiry is the only other cancellation cause in v1 (ADR 0002 A4).
+Source: `internal/application/usecases/queries.go` (`CancelReturn`). `CancelReturn` does not call `expireLazily`: an
+expired authorization is cancelled with reason `EXPIRED` and the call succeeds (the lazy expiry IS the cancellation).
+There is no sweeper: the lazy expiry is the only other cancellation cause in v1 (ADR 0002 A4, A11).

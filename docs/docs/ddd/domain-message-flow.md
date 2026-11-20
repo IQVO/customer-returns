@@ -102,9 +102,9 @@ sequenceDiagram
     Note over CR: Cancel SHOPPER_REQUESTED<br/>CANCELLED
     CR-->>S: 200 authorization CANCELLED
     CR->>VC: evt: ReturnCancelled
-    Note over CR: 31 days later, the next touch:<br/>expireLazily cancels with EXPIRED<br/>and answers authorization-expired
+    Note over CR: 31 days later, the next command touch<br/>cancels with EXPIRED: a label request<br/>answers authorization-expired,<br/>a cancel answers 200
 ```
 
 Source: `internal/application/usecases/queries.go` (`CancelReturn`, `expireLazily`), `labels.go` (`expireAndReject`).
-There is no sweeper: expiry is checked on every read, label and outcome touch
-([ADR 0002](/docs/adr/0002-aggregates-and-invariants) A4).
+There is no sweeper: expiry is applied on a label, cancel or outcome touch, never on a read
+([ADR 0002](/docs/adr/0002-aggregates-and-invariants) A4, A11).
