@@ -50,8 +50,9 @@ Rules of the contract:
   a tolerant failure, never a 500. At most five packages per authorization (`packageNo` 1..5).
 - **Method.** `DROP_OFF` (default) or `PICKUP`. PICKUP requires a window inside `[authorizedAt, expiresAt]` and is never KEEP. The pickup leg of last-mile is a later
   wave: the window is recorded, the state machine already knows `PICKUP_FAILED`.
-- **Expiry.** An authorization expires 30 days after it was authorized; expiry is checked lazily on the next touch (read, label, outcome) and cancels the
-  authorization (`422 authorization-expired`, the event says `EXPIRED`). There is no sweeper.
+- **Expiry.** An authorization expires 30 days after it was authorized; expiry is checked lazily by the next command that touches it, never by a read
+  (ADR 0002 A4 as amended by A11): a label request cancels it and answers `422 authorization-expired`, a cancellation cancels it and answers `200`, and a
+  graded outcome cancels it before recording the outcome as a fact; the event says `EXPIRED` in every case. There is no sweeper.
 - **No authentication** (consistent with the fleet): the storefront is the only caller and names the order in the body.
 - Every `POST` takes `Idempotency-Key` (1 to 128 printable ASCII characters; missing is `400 idempotency-key-required`, malformed `400 idempotency-key-invalid`); a
   repeat replays the first response with the header `Idempotency-Replayed` set to `true` when that response is final for the request: a success, and
