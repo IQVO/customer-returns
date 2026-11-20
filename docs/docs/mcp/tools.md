@@ -57,15 +57,18 @@ Reads one return authorization.
   known), `trackingNumbers`, `authorizedAt`, `expiresAt` (`authorizedAt` + 30 days), `version` and `pricesAbsent`; plus
   `destinationNodeId`, `originNodeId` and the pickup window when they apply.
 - **Errors:** an unknown id is `not-found`. The read never writes: an authorization past `expiresAt` is answered as
-  stored (still `AUTHORIZED`) until a command touches it (see the known inconsistency below).
+  stored (still `AUTHORIZED`) until a command touches it (ADR 0002 A11, the same as `GET /return-authorizations/{authorizationId}`).
 
 ## `list_return_authorizations`
 
 Lists one order's return authorizations, newest first.
 
 - **Input:** `orderId` (required, for example `ord-51a0c9`); `limit` (optional, 1..100, default 20); `cursor`
-  (optional, see the known inconsistency below).
-- **Output:** `items` (each the same shape as `get_return_authorization`) and `nextCursor`.
+  (optional: the previous page's `nextCursor`; omitted means the first page).
+- **Output:** `items` (each the same shape as `get_return_authorization`) and `nextCursor` (empty on the last page).
+- **Errors:** a malformed `cursor` is `validation-failed`, the slug `GET /return-authorizations?cursor=` answers with
+  (pinned by `TestListReturnAuthorizationsCursorReachesTheNextPage` and
+  `TestListReturnAuthorizationsMalformedCursorIsValidationFailed`).
 
 ## Transport
 
@@ -91,13 +94,5 @@ of this context are REST-only). `prompts/get` returns the SOP text with the id i
 
 ## Known inconsistencies
 
-- `list_return_authorizations` accepts `cursor` in its input schema, but the handler passes only `orderId` and `limit`
-  to the use case (`internal/adapters/inbound/mcp/tools.go`), so every call answers the first page and the cursor is
-  ignored. Paging through more than one page works over REST (`GET /return-authorizations?cursor=`) only. Fixing it is
-  a code change, not a docs one.
-- `apis/openapi.yaml` (and so the generated `getReturnAuthorization` page) says an expired authorization is lazily
-  cancelled on the read, but `GetReturnAuthorization` (`internal/application/usecases/queries.go`) only loads and maps
-  it; `expireLazily` runs on `IssueLabel`, `CancelReturn` and the outcome consumer only. The spec is a contract file, so
-  correcting it is a reviewed change of its own.
 - `cmd/mcp` logs `environment` as `dev` when `ENVIRONMENT` is unset, while the telemetry resource says `local`
   ([Configuration](/docs/operations/configuration)).

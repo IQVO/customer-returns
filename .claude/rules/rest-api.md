@@ -20,8 +20,8 @@ the caller.
   `no-return-destination`
 - `GET /return-authorizations?orderId=&cursor=&limit=` -> `ListReturnAuthorizations`
   (keyset page `{items, nextCursor}`, newest first, limit 1..100 default 20)
-- `GET /return-authorizations/{authorizationId}` -> `GetReturnAuthorization` (an expired
-  authorization is lazily cancelled by this read)
+- `GET /return-authorizations/{authorizationId}` -> `GetReturnAuthorization` (a pure read: an
+  expired authorization is answered as stored; only a command's touch cancels it, ADR 0002 A11)
 - `POST /return-authorizations/{authorizationId}/cancellations` -> `CancelReturn`
 - `POST /return-authorizations/{authorizationId}/labels` -> `IssueLabel` — body `{packageNo}`
   1..5; calls the shipping context's reverse-label route (ADR 0005) with the authorization's
