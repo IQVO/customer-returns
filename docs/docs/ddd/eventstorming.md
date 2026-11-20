@@ -78,7 +78,9 @@ flowchart TB
 
 Source: `internal/application/usecases/labels.go`, `internal/adapters/outbound/labels` (ADR 0005). While the route is
 not configured the answer is the tolerant `422 label-unavailable` — no 500, no retry storm, no outbox row. `MarkInTransit`
-raises no event: transit is observed, not commanded.
+raises no event: transit is observed, not commanded — and in v1 nothing observes it yet (no transit feed is consumed, no
+use case calls `MarkInTransit`), so `IN_TRANSIT` is reserved and not reached; the outcome moves `AUTHORIZED` straight to
+`RECEIVED`.
 
 ## 3. Outcome and restock
 

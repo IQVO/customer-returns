@@ -33,10 +33,12 @@ are in `docs/adr/0002-aggregates-and-invariants.md` (assumptions A1-A10).
 ## Aggregates
 
 - **ReturnAuthorization** (`internal/domain/returnauthorization`, the ONLY aggregate):
-  `AUTHORIZED -> IN_TRANSIT -> RECEIVED | CLOSED_KEEP | CANCELLED`, plus `PICKUP_FAILED`
-  (reserved for the last-mile pickup wave). `Authorize` (decides+raises), `LinkLabel`,
-  `MarkInTransit` (no event), `ApplyOutcome` -> RECEIVED, `Cancel` (shopper, while
-  AUTHORIZED), lazy expiry. Bounds: 1..`MaxLinesPerReturn = 50` lines, quantity >= 1,
+  as built `AUTHORIZED -> CLOSED_KEEP` (KEEP, at once) | `CANCELLED` | `RECEIVED`;
+  `AUTHORIZED -> IN_TRANSIT -> RECEIVED` and `AUTHORIZED -> PICKUP_FAILED` exist in the
+  domain (`MarkInTransit`, `MarkPickupFailed`) but nothing calls them yet (reserved: a
+  transit feed, the last-mile pickup wave; ADR 0002 A11). `Authorize` (decides+raises),
+  `LinkLabel`, `ApplyOutcome` -> RECEIVED, `Cancel` (shopper, while AUTHORIZED; EXPIRED
+  past the TTL, answering 200), lazy expiry. Bounds: 1..`MaxLinesPerReturn = 50` lines, quantity >= 1,
   <= 5 tracking numbers.
 - `internal/domain/network`: the read-model value types (`OrderGroup`, `GroupStatus`,
   `Node`, `NodeLifecycle`, `PrefixAssignment`, `GroupOrigin`) and the `decide` inputs.
