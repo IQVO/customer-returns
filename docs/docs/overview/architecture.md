@@ -152,7 +152,7 @@ One Postgres database owned by this context, created by the embedded migrations
 | `catalog_pack_levels` | Local copy of the packaging hierarchy: item, level, GTIN, units per pack, active flag. |
 | `outbox_events` | The transactional outbox; one row per message and destination topic, with `attempts` and `last_error`. |
 | `processed_events` | The consumers' inbox: CloudEvents ids already applied. |
-| `idempotency_keys` | Stored answers of the `POST` routes, keyed by `(route, key)`, kept 24 h. |
+| `idempotency_keys` | Stored answers of the `POST` routes (a success or a FINAL/OUTCOME refusal; a RETRYABLE refusal is released, ADR 0013), keyed by `(route, key)`, kept 24 h. |
 | `seller_scorecard_receipts`, `seller_scorecard_occurrences` | The append-only facts the scorecard is computed from. |
 
 Plus the sequence `sscc_serial_seq`. Postgres is the only store: the binaries refuse to boot without `DATABASE_URL`

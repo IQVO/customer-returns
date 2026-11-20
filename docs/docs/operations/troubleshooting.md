@@ -77,7 +77,7 @@ request path). The table is `problemCatalogue` in `internal/adapters/inbound/htt
 | 422 | `validation-failed` | Bad JSON, an unknown field, a value outside its bounds, a malformed GTIN, a plan line repeated, a shipment labelled with no carton. |
 | 400 | `idempotency-key-required` | A `POST` without an `Idempotency-Key` header. |
 | 400 | `idempotency-key-invalid` | An `Idempotency-Key` that is not 1 to 128 printable ASCII characters. |
-| 409 | `idempotency-key-reused` | The same key with a different method, path or body (the key is global). A key replays the stored answer, with `Idempotency-Replayed: true`, for 24 h. A client bug: do not retry. |
+| 409 | `idempotency-key-reused` | The same key with a different method, path or body (the key is global). A key replays a stored answer (a success or `authorization-expired`), with `Idempotency-Replayed: true`, for 24 h. A client bug: do not retry. |
 | 422 | `case-pack-not-uniform` | A `CASE_PACKED` carton with more than one item, `MIXED` kind, or an item packed at two different quantities. |
 | 422 | `case-qty-mismatches-gtin` | The carton quantity differs from the `unitsPerPack` of the item's active CASE level, or the GTIN is not an active CASE level. |
 | 422 | `carton-overweight` / `carton-oversize` | Above the node's declared `maxCartonWeightG` or `maxCartonDimsMm` (edges compared sorted, so orientation does not matter). |
@@ -87,7 +87,10 @@ request path). The table is `problemCatalogue` in `internal/adapters/inbound/htt
 | 500 | `internal-error` | An unmapped error. The detail is always `an unexpected error occurred`; the real error is in the ERROR log line `request failed`. |
 
 Other points: a NUL character (U+0000) in the path, query or body is a uniform client error and never records the
-idempotency key; a 5xx is never cached, so the same key can retry; a 4xx is cached and replays.
+idempotency key; a 5xx is never cached, so the same key can retry. A refusal is cached only when its problem type
+is FINAL or OUTCOME (`authorization-expired`); a RETRYABLE one (`group-not-shipped`, `no-return-destination`,
+`label-unavailable`, `concurrent-update`, `illegal-transition`, `not-found`, `validation-failed`) releases the key, so the
+same key and body executes again ([ADR 0013](/docs/adr/0013-idempotency-replay-classes)).
 
 ## Seller scorecard
 
