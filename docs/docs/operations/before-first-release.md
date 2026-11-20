@@ -8,12 +8,29 @@ description: "Packaging checklist for customer-returns's first develop to main p
 
 # Before the first release: customer-returns
 
-There is no `main` branch yet, so the first `develop` to `main` promotion has not happened: `docker-publish` and
-`release` in `.github/workflows/ci.yml` run only on a push to `main`. The packaging parts below already exist on
-`develop`: the `Dockerfile`, `.dockerignore`, `charts/customer-returns/` with its tests, and the fitness tests of
-rows 1 and 2. Row 3 names a `trivy-scan` job and row 10 a `docs-api-drift` job; **`ci.yml` in this repository
-has neither** (its jobs are listed in [Testing](/docs/development/testing)), so those two rows are guarded by review
-only. Treat the list as the packaging record, and re-check each row in the promotion PR.
+## Status: released
+
+The first `develop` to `main` promotion has happened: `main` exists and the `release` job has tagged and published
+`v0.1.0` (2026-11-14) through `v0.1.5` (2026-11-18) from pushes to `main` (`git tag`, `gh release list -R
+IQVO/customer-returns`). This page is no longer a gate; it stays as the service's packaging record,
+and each later `develop` to `main` promotion PR re-checks the rows. Checked against `origin/develop`:
+
+| # | State |
+| --- | --- |
+| 1 | Done. `cmd/**` imports no memory adapter (`TestRuntimeBinaryHasNoInMemoryAdapters`); `cmd/api` refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` or one of the four consumer group ids. |
+| 2 | Done (`TestNoGoFilesAtRepoRoot`); godog lives in `features/`. |
+| 3 | Done: the `Dockerfile` builds every `cmd/*/` (`api`, `mcp`, `a2a`, `projector`, `reports`) into one image, `ENTRYPOINT ["./api"]`; `EXPOSE 8080 8090 8093` omits the projector's `:8091` and the reports' `:8092` (cosmetic: Kubernetes ignores `EXPOSE`). `ci.yml` has **no** `trivy-scan` job, so this row is guarded by review and by `docker-publish` only. |
+| 4 | Present. |
+| 5 | Done: `charts/customer-returns`, `Chart.yaml` name `customer-returns`; `release` packages `customer-returns-<version>.tgz`. |
+| 6 | Done (`database.url` or `database.existingSecret`, rendered as `secretKeyRef`). |
+| 7 | Done: `terminationGracePeriodSeconds` 40, refused when too small. |
+| 8 | Done: `charts/customer-returns/tests/` (`render_test.sh`, `test_service_selectors.py` and the python suites), run by `chart-tests`. |
+| 9 | Done: `config.orderConsumerGroup`, `config.topologyConsumerGroup`, `config.sourcingConsumerGroup`, `config.vendorConsumerGroup`, all mandatory. |
+| 10 | No `web/` and no `docs-api-drift` job in `ci.yml` (the documentation site builds in its own workflow, `docs.yml`); `api-lint` lints both specs. |
+| 11 | Images push to `ghcr.io/iqvo` with the Actions token. |
+| 12 | Checked by the `vuln` job (a `docker-publish` prerequisite); `make vuln` runs the same command. |
+
+The original checklist follows unchanged.
 
 The first merge to `main` runs `docker-publish` and `release`. Two services built from
 this template (pick-face-replenishment, task-interleaving) each needed a rework because

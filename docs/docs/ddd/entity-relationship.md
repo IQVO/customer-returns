@@ -3,112 +3,84 @@ id: entity-relationship
 title: Entity Relationship
 sidebar_label: Entity Relationship
 sidebar_position: 10
-description: "The Postgres schema of Customer Returns's own database, as created by migrations 0001 and 0002."
+description: "The Postgres schema of Customer Returns's own database, as created by migrations 0001 to 0004, and the optional analytical database."
 ---
 
 # Entity Relationship
 
-The schema of this context's own Postgres database, as created by
-`internal/adapters/outbound/postgres/migrations/0001_customer_returns_schema.up.sql` and `0002_seller_scorecard.up.sql`.
-There are no foreign keys: each aggregate is one row, and the parts drawn as child entities (plan lines, cartons and
-their contents) are stored as `JSONB` on that row. Ids of other aggregates are held by value. The `sscc_registry` table
-holds network-wide SSCC uniqueness ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)). Eleven tables (nine in 0001,
-two in 0002) and one sequence, `sscc_serial_seq`, which supplies the serial of every SSCC the network issues.
+The schema of this context's own Postgres database, as created by the four embedded migrations in
+`internal/adapters/outbound/postgres/migrations/`: `0001_customer_returns_schema` (the aggregate, the read models and the
+outcome facts), `0002_customer_returns_stem` (outbox, inbox, idempotency keys), `0003_idempotency_key_global` (the
+`Idempotency-Key` becomes the primary key on its own) and `0004_node_status_facts` (`returns_network_nodes.lifecycle_at`,
+and the node type check dropped so the type is stored as node-topology publishes it). Nine tables, no foreign keys: the
+aggregate is one row with its lines as `JSONB`, and ids of other contexts are held by value.
 
-Seller and plan aggregates:
-
-```mermaid
-erDiagram
-    sellers {
-        TEXT seller_id PK "ownerRef"
-        TEXT name
-        TEXT state "ACTIVE, SUSPENDED"
-        TIMESTAMPTZ onboarded_at
-        TIMESTAMPTZ suspended_at "nullable"
-        TEXT suspend_reason
-        BIGINT version
-    }
-    inbound_plans {
-        TEXT plan_id PK
-        TEXT seller_id "by value"
-        TEXT destination_node_id "by value"
-        TEXT packing_option "INDIVIDUAL, CASE_PACKED"
-        TEXT state "DRAFT, CONFIRMED, CANCELLED"
-        JSONB lines "catalogItemId, gtin, qtyEaches"
-        TIMESTAMPTZ created_at
-        TIMESTAMPTZ confirmed_at "nullable"
-        TIMESTAMPTZ cancelled_at "nullable"
-        BIGINT version
-    }
-```
-
-Shipment aggregate and the SSCC registry:
+The aggregate and the outcome facts:
 
 ```mermaid
 erDiagram
-    inbound_shipments {
-        TEXT shipment_id PK
-        TEXT plan_id "by value"
-        TEXT seller_id "by value"
-        TEXT node_id "by value"
+    return_authorizations {
+        TEXT authorization_id PK "ret-uuid"
+        TEXT order_id "by value"
+        INTEGER group_no
+        JSONB lines "1 to 50: lineNo, catalogItemId, quantity, unitPriceCents, ownerRef"
+        TEXT reason "DEFECTIVE, NOT_AS_DESCRIBED, WRONG_ITEM, NOT_NEEDED, OTHER"
+        TEXT disposition "KEEP, NEAREST_RETURNS_CENTER, ORIGIN_NODE"
+        TEXT method "DROP_OFF, PICKUP"
+        TEXT destination_node_id "empty for KEEP"
+        TEXT origin_node_id
+        TIMESTAMPTZ pickup_window_start "nullable"
+        TIMESTAMPTZ pickup_window_end "nullable"
+        JSONB tracking_numbers "at most 5"
         TEXT state "six states"
-        JSONB cartons "SSCC cartons with contents and receipt status"
-        JSONB unexpected "cartons the manifest did not list"
-        BOOLEAN discrepant
-        TIMESTAMPTZ created_at
-        TIMESTAMPTZ labelled_at "nullable"
-        TIMESTAMPTZ shipped_at "nullable"
-        TIMESTAMPTZ received_at "nullable"
+        TIMESTAMPTZ authorized_at
+        TIMESTAMPTZ expires_at "authorized_at + 30 days"
+        TIMESTAMPTZ closed_at "nullable"
         BIGINT version
+        TIMESTAMPTZ created_at
     }
-    sscc_registry {
-        TEXT sscc PK "unique network-wide"
-        TEXT shipment_id
+    return_outcomes {
+        BIGSERIAL id PK
+        TEXT authorization_id "by value"
+        TEXT node_id
+        TIMESTAMPTZ received_at
+        JSONB lines "graded lines, unexpected ones included"
+        TIMESTAMPTZ created_at
     }
 ```
 
-Read models fed by consumed events:
+Read models fed by consumed events ([ADR 0003](/docs/adr/0003-consumed-contracts-and-local-read-models)):
 
 ```mermaid
 erDiagram
-    node_inbound_views {
+    order_group_views {
+        TEXT order_id PK
+        INTEGER group_no PK
+        TEXT status "PROMISED, LOCKED, SHIPPED, DELIVERED, LOST, RETURNED"
+        TEXT destination_postal_prefix
+        TEXT witness_node_id
+        JSONB lines
+        TIMESTAMPTZ updated_at
+    }
+    group_origins {
+        TEXT order_id PK
+        INTEGER group_no PK
+        TEXT node_id "fulfilling node"
+        JSONB owners_by_item
+        TIMESTAMPTZ updated_at
+    }
+    returns_network_nodes {
         TEXT node_id PK
         TEXT node_type
-        TEXT status
-        INTEGER profile_revision
-        JSONB inbound_limits "nullable"
+        TEXT region_id
+        TEXT lifecycle "PENDING, ACTIVE, SUSPENDED, RETIRED"
+        TIMESTAMPTZ lifecycle_at "nullable, migration 0004"
+        TIMESTAMPTZ updated_at
     }
-    catalog_pack_levels {
-        TEXT catalog_item_id PK
-        TEXT level PK "EACH, INNER, CASE, PALLET"
-        TEXT gtin PK
-        TEXT child_gtin
-        INTEGER units_per_pack
-        BOOLEAN active
-        TIMESTAMPTZ declared_at "nullable"
-        TIMESTAMPTZ retired_at "nullable"
-    }
-```
-
-Seller scorecard facts (migration 0002, [ADR 0005](/docs/adr/0005-the-reverse-label-route)), written in the same unit
-of work as the receipt:
-
-```mermaid
-erDiagram
-    seller_scorecard_receipts {
-        TEXT shipment_id PK
-        TEXT seller_id
-        INTEGER cartons_reported
-        INTEGER cartons_received
-        TIMESTAMPTZ recorded_at
-    }
-    seller_scorecard_occurrences {
-        BIGSERIAL id PK
-        TEXT seller_id
-        TEXT shipment_id
-        TEXT occurrence_type "DISCREPANCY, VIOLATION"
-        TEXT code
-        TIMESTAMPTZ recorded_at
+    service_area_prefixes {
+        TEXT postal_prefix PK
+        TEXT region_id
+        BIGINT assignment_version
     }
 ```
 
@@ -137,8 +109,8 @@ erDiagram
         TIMESTAMPTZ processed_at
     }
     idempotency_keys {
-        TEXT route PK
-        TEXT key PK
+        TEXT key PK "global since 0003"
+        TEXT route
         TEXT request_hash
         INTEGER status_code "nullable"
         BYTEA response_body "nullable"
@@ -148,10 +120,11 @@ erDiagram
     }
 ```
 
-Source: the two migrations above. The idempotency rows are purged after 24 hours by the retention sweep in `cmd/api`
-(see [Runbook](/docs/operations/runbook)). Check constraints (`state`, `packing_option`, `level`, `occurrence_type`,
-`version >= 1`, `cartons_received <= cartons_reported`) are in the migrations. Column details of the outbox and
-consumer behaviour are on [Troubleshooting](/docs/operations/troubleshooting).
+Source: the four migrations above. The idempotency rows are purged after 24 hours by the retention sweep in `cmd/api`
+(see [Runbook](/docs/operations/runbook)). The check constraints of `return_authorizations` (a `KEEP` closes at once and
+has no destination, a `PICKUP` needs a window, `IN_TRANSIT` needs a tracking number, terminal states carry `closed_at`)
+are in `0001`. Column details of the outbox and consumer behaviour are on
+[Troubleshooting](/docs/operations/troubleshooting).
 
 ## Analytical database tables
 

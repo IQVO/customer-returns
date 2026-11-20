@@ -3,27 +3,26 @@ id: quickstart
 title: Quickstart
 sidebar_label: Quickstart
 sidebar_position: 3
-description: "Run customer-returns locally against Postgres and Kafka and walk a shipment from onboarding to ship."
+description: "Run customer-returns locally against Postgres and Kafka and walk one return authorization through the API."
 ---
 
 # Quickstart
 
-This page gets `cmd/api` running on your machine and walks one shipment through the seller API. The commands and
+This page gets `cmd/api` running on your machine and walks one return authorization through the API. The commands and
 payloads come from the code and `apis/openapi.yaml`; **no run output is pasted here** because this page was written
-from the source, not from a captured session. Where a response is shown it is the documented example from the OpenAPI
-contract.
+from the source, not from a captured session.
 
 ## Prerequisites
 
-- Go (version in `go.mod`), `make`, `curl`.
+- Go (version in `go.mod`), `make`, `curl`, `psql`.
 - A reachable PostgreSQL. The service owns its own database and runs its embedded migrations at boot.
 - A reachable Kafka broker. There is **one** broker platform-wide; from the kind cluster it is reachable at
-  `localhost:9092`. The docker-compose Kafka is retired, do not start another.
+  `localhost:9092`.
 - Docker only for `make integration` (testcontainers boots its own Postgres and Kafka there).
-- `golangci-lint` (pinned `v2.14.0`) for `make lint`; `lefthook install` once per clone wires the git hooks.
+- `golangci-lint` for `make lint`; `lefthook install` once per clone wires the git hooks.
 
-There is no in-memory mode: `cmd/api` refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS`, the three consumer
-groups and `SSCC_COMPANY_PREFIX` ([Configuration](/docs/operations/configuration)).
+There is no in-memory mode: `cmd/api` refuses to boot without `DATABASE_URL`, `KAFKA_BROKERS` and the four consumer
+groups ([Configuration](/docs/operations/configuration)).
 
 ## Make targets
 
@@ -32,12 +31,13 @@ groups and `SSCC_COMPANY_PREFIX` ([Configuration](/docs/operations/configuration
 | `make build` | `go build ./...` |
 | `make test` | `go test ./... -race` (unit, handler and godog scenarios, no database) |
 | `make check` | `fmt-check vet build lint test` (the pre-push hook) |
+| `make check-fast` | `fmt-check vet arch-test` plus the tests of the changed packages |
 | `make check-all` | `check` plus `coverage arch-test bdd` |
 | `make coverage` | tests with the 90% gate over `internal/domain` and `internal/application` |
 | `make bdd` | `go test ./... -run TestFeatures -v` |
 | `make arch-test` | `go test ./internal/architecture/... -v` |
 | `make integration` | `go test -tags=integration ./... -race -count=1` (Docker) |
-| `make mutation` / `make mutation-full` | gremlins on `internal/domain/inboundshipment` / on `internal/domain` |
+| `make mutation` / `make mutation-full` | gremlins on `internal/domain/returnauthorization` / on `internal/domain` |
 | `make vuln` | `govulncheck ./...` |
 
 See [Testing](/docs/development/testing) for the full pyramid.
@@ -45,12 +45,12 @@ See [Testing](/docs/development/testing) for the full pyramid.
 ## Start the API
 
 ```sh
-export DATABASE_URL="postgres://user:password@localhost:5432/customer_returns?sslmode=disable"
+export DATABASE_URL="postgres://user:***@localhost:5432/customer_returns?sslmode=disable"
 export KAFKA_BROKERS="localhost:9092"
-export NODE_CONSUMER_GROUP=customer-returns-node
-export CATALOG_CONSUMER_GROUP=customer-returns-catalog
-export RECEIPT_CONSUMER_GROUP=customer-returns-receipt
-export SSCC_COMPANY_PREFIX=0614141        # the network's GS1 company prefix, 6 to 11 digits
+export ORDER_CONSUMER_GROUP=customer-returns-order
+export TOPOLOGY_CONSUMER_GROUP=customer-returns-topology
+export SOURCING_CONSUMER_GROUP=customer-returns-sourcing
+export VENDOR_CONSUMER_GROUP=customer-returns-vendor
 go run ./cmd/api                          # migrations run at boot; REST on :8080
 ```
 
@@ -68,68 +68,43 @@ DATABASE_URL="$DATABASE_URL" go run ./cmd/mcp    # MCP on :8090, path /mcp
 DATABASE_URL="$DATABASE_URL" A2A_AGENT_URL=http://localhost:8093/ go run ./cmd/a2a   # A2A on :8093
 ```
 
-## Seed a destination node
+## Authorize a return
 
-A plan can only target a node that the local `node_inbound_views` read model knows as `ACTIVE` with an INBOUND type
-(`FULFILLMENT_CENTER` or `INBOUND_CROSS_DOCK`, `internal/domain/network/network.go`). In a real environment the
-node consumer fills that table from node-topology's `NodeRegistered` and `NodeActivated` events. For a local walk
-without node-topology, insert the row yourself:
+An authorization needs the order group in `order_group_views` as SHIPPED or DELIVERED and a destination (an ACTIVE
+returns centre in the group's region, or the origin node in `group_origins`), unless the return is a returnless `KEEP`.
+In a real environment the consumers fill those tables from customer-ordering, node-topology and order-sourcing; without
+them, `POST /return-authorizations` answers `422 group-not-shipped` (retry with the same key once the view caught up).
 
-```sh
-psql "$DATABASE_URL" -c "INSERT INTO node_inbound_views (node_id, node_type, status) VALUES ('node-0f3a91', 'FULFILLMENT_CENTER', 'ACTIVE')"
-```
+Every `POST` needs an `Idempotency-Key` header (1 to 128 printable ASCII characters). All calls below go to the service
+directly (`localhost:8080`, routes at the root); through Kong the same calls go to
+`http://localhost:8000/api/customer-returns/...` (the OpenAPI server URL).
 
-## Walk a shipment
-
-Every `POST` needs an `Idempotency-Key` header (1 to 128 characters). All calls below go to the service directly
-(`localhost:8080`, routes at the root). The OpenAPI server URL is `http://localhost:8000/api/customer-returns`, which is the
-route in `warehouse-infra` (`helm-values/customer-returns.yaml`, `/api/customer-returns` with the prefix stripped), so through
-Kong on `:8000` the same calls go to `http://localhost:8000/api/customer-returns/...`.
-
-1. Onboard a seller:
+1. Authorize (a cheap, fully priced drop-off line decides `KEEP` and closes at once):
 
    ```sh
-   curl -s -X POST localhost:8080/sellers -H 'Content-Type: application/json' -H 'Idempotency-Key: k-1' \
-     -d '{"sellerId":"seller-77","name":"Acme Goods"}'
+   curl -s -X POST localhost:8080/return-authorizations -H 'Content-Type: application/json' -H 'Idempotency-Key: k-1' \
+     -d '{"orderId":"ord-51a0c9","groupNo":1,"lines":[{"lineNo":1,"unitPriceCents":900}],"reason":"NOT_NEEDED","method":"DROP_OFF"}'
    ```
 
-   Documented response (`201`): `{"sellerId":"seller-77","name":"Acme Goods","state":"ACTIVE","onboardedAt":"..."}`.
-
-2. Declare an individually packed plan and confirm it:
+2. Read it and list the order's authorizations:
 
    ```sh
-   curl -s -X POST localhost:8080/inbound-plans -H 'Content-Type: application/json' -H 'Idempotency-Key: k-2' \
-     -d '{"sellerId":"seller-77","destinationNodeId":"node-0f3a91","packingOption":"INDIVIDUAL","lines":[{"catalogItemId":"item-004512","gtin":"00614141000036","qtyEaches":12}]}'
-   curl -s -X POST 'localhost:8080/inbound-plans/<planId>/confirmations' -H 'Idempotency-Key: k-3'
+   curl -s localhost:8080/return-authorizations/<authorizationId>
+   curl -s 'localhost:8080/return-authorizations?orderId=ord-51a0c9&limit=20'
    ```
 
-   Replace `<planId>` with the `planId` of the first response (`pln-...`).
-
-3. Open a shipment, add a carton that matches the plan exactly, label and ship:
+3. For a physical return, ask for the reverse label (needs `SHIPPING_LABELS_URL`; `422 label-unavailable` otherwise), or
+   cancel while still `AUTHORIZED`:
 
    ```sh
-   curl -s -X POST localhost:8080/inbound-plans/<planId>/shipments -H 'Idempotency-Key: k-4'
-   curl -s -X POST localhost:8080/inbound-shipments/<shipmentId>/cartons -H 'Content-Type: application/json' -H 'Idempotency-Key: k-5' \
-     -d '{"kind":"MIXED","contents":[{"catalogItemId":"item-004512","gtin":"00614141000036","qtyEaches":12}],"grossWeightG":5200,"dimsMm":{"l":400,"w":300,"h":200}}'
-   curl -s -X POST 'localhost:8080/inbound-shipments/<shipmentId>/labels' -H 'Idempotency-Key: k-6'
-   curl -s localhost:8080/inbound-shipments/<shipmentId>/labels
-   curl -s -X POST 'localhost:8080/inbound-shipments/<shipmentId>/dispatches' -H 'Idempotency-Key: k-7'
+   curl -s -X POST localhost:8080/return-authorizations/<authorizationId>/labels -H 'Content-Type: application/json' \
+     -H 'Idempotency-Key: k-2' -d '{"packageNo":1}'
+   curl -s -X POST localhost:8080/return-authorizations/<authorizationId>/cancellations -H 'Idempotency-Key: k-3'
    ```
 
-   The carton response carries the SSCC the network issued (`ssccIssued: true`) and its label data. For a single-shipment
-   plan, `POST .../labels` fails with `carton-contents-mismatch-plan` unless the cartons add up to the plan's eaches.
-
-4. Read the scorecard (a pure read):
-
-   ```sh
-   curl -s 'localhost:8080/sellers/seller-77/scorecard?window=30d'
-   ```
-
-   With no closed shipment the rates are omitted and `complianceTier` is `GOOD`.
-
-`POST .../dispatches` appends `InboundShipmentShipped` to the outbox; the relay publishes it to `retailnetwork.customer-returns.events`
-within `OUTBOX_RELAY_INTERVAL`. The shipment closes only when vendor-connectivity publishes `InboundReceiptSubmitted`
-for it ([Integration](/docs/ecosystem/integration)).
+Each write appends its event to the outbox; the relay publishes it to `retailnetwork.customer-returns.events` within
+`OUTBOX_RELAY_INTERVAL`. A physical return completes only when vendor-connectivity publishes
+`VendorReturnOutcomeSubmitted` for it ([Integration](/docs/ecosystem/integration)).
 
 ## Where to go next
 

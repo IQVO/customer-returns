@@ -26,3 +26,6 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0011](./0011-agent-authority-levels-and-complete-mcp-surface.md) | Agent authority levels and complete MCP surface | Accepted (2026-11-02) |
 | [0012](./0012-analytics-read-side-and-return-rate-facts.md) | Analytics read side and return-rate facts | Accepted (2026-11-17) |
 | [0013](./0013-idempotency-replay-classes.md) | Every problem type has a replay class; a retryable refusal is not stored | Accepted (2026-11-19) |
+
+There is no ADR 0007: the number was never used. It is reserved for a web remote this repository does not have
+(ADR 0012 and ADR 0013 each record that 0007 is not reused).
