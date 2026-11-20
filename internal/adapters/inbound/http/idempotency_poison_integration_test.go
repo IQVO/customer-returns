@@ -74,17 +74,20 @@ func keyedRequest(key string) *http.Request {
 }
 
 // TestIdempotency_A409FromAnAbortedTransactionCommitsTheOutcome: a request
-// losing a race on a unique index answers 409, not 500, and that 409 is cached
-// and replayed; a retry with the same key never re-runs the handler.
+// losing a race on a unique index leaves the transaction aborted. When it
+// answers a refusal that is FINAL for the request (here the catalogue's
+// idempotency-key-reused 409, answered through the production writer so the
+// class marking runs), the middleware heals the transaction, commits the key
+// row with the outcome and replays it: the handler never runs again. Only the
+// class decides whether an answer is kept (replay_class.go); the aborted
+// transaction does not.
 func TestIdempotency_A409FromAnAbortedTransactionCommitsTheOutcome(t *testing.T) {
 	pool := poisonPool(t)
 	var calls atomic.Int64
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		poisonTx(t, r)
-		w.Header().Set("Content-Type", "application/problem+json")
-		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"type":"some-conflict","title":"Conflict","status":409}`))
+		inboundhttp.RefuseForTest(w, r, "idempotency-key-reused", http.StatusConflict)
 	})
 	mw := inboundhttp.RequireIdempotencyKey(pool, pgtx.With)(handler)
 
@@ -114,6 +117,55 @@ func TestIdempotency_A409FromAnAbortedTransactionCommitsTheOutcome(t *testing.T)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("handler ran %d times, want 1 (the replay must not re-run it)", calls.Load())
+	}
+}
+
+// TestIdempotency_ARetryable409FromAnAbortedTransactionIsReleased: the same lost race answered as
+// production answers it (concurrent-update, RETRYABLE) is not stored: the key row is gone, the
+// aborted transaction left nothing behind, and the retry executes.
+func TestIdempotency_ARetryable409FromAnAbortedTransactionIsReleased(t *testing.T) {
+	pool := poisonPool(t)
+	var calls atomic.Int64
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		poisonTx(t, r)
+		inboundhttp.RefuseForTest(w, r, "concurrent-update", http.StatusConflict)
+	})
+	mw := inboundhttp.RequireIdempotencyKey(pool, pgtx.With)(handler)
+
+	for i := 1; i <= 2; i++ {
+		rec := httptest.NewRecorder()
+		mw.ServeHTTP(rec, keyedRequest("k-race"))
+		if rec.Code != http.StatusConflict || rec.Header().Get(inboundhttp.IdempotencyReplayedHeader) != "" {
+			t.Fatalf("attempt %d = %d replayed=%q, want a fresh 409", i, rec.Code, rec.Header().Get(inboundhttp.IdempotencyReplayedHeader))
+		}
+		if n := queryInt(t, pool, `SELECT count(*) FROM idempotency_keys WHERE key IN ('k-race', 'dup')`); n != 0 {
+			t.Fatalf("attempt %d left %d rows: a RETRYABLE refusal must roll everything back", i, n)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2 (the released key executes again)", calls.Load())
+	}
+}
+
+// TestIdempotency_AnOutcomeFromAnAbortedTransactionIsNeverCached: an OUTCOME refusal is stored
+// only together with the writes it reports. When the transaction died, those writes are gone, so
+// the answer is a 500 and the key retries, exactly like a 2xx behind a failed release.
+func TestIdempotency_AnOutcomeFromAnAbortedTransactionIsNeverCached(t *testing.T) {
+	pool := poisonPool(t)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		poisonTx(t, r)
+		inboundhttp.RefuseForTest(w, r, "authorization-expired", http.StatusUnprocessableEntity)
+	})
+	mw := inboundhttp.RequireIdempotencyKey(pool, pgtx.With)(handler)
+
+	rec := httptest.NewRecorder()
+	mw.ServeHTTP(rec, keyedRequest("k-outcome"))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("first = %d %s, want 500 (the writes the OUTCOME reports never happened)", rec.Code, rec.Body.String())
+	}
+	if n := queryInt(t, pool, `SELECT count(*) FROM idempotency_keys WHERE key IN ('k-outcome', 'dup')`); n != 0 {
+		t.Fatalf("a failed OUTCOME left %d idempotency rows: the key could not retry", n)
 	}
 }
 

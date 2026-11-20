@@ -44,7 +44,8 @@ func (s *service) send(t *testing.T, method, path, body, key string) rawAnswer {
 // phaseIdempotency proves the fleet REST guideline section 2 on the real router
 // and the real Postgres store: global key, byte-identical replay with
 // Idempotency-Replayed, 409 reuse (other body and other route), 400 for a
-// missing or malformed key, a cached 4xx, and one effect under concurrency.
+// missing or malformed key, a released (RETRYABLE) refusal that is not stored,
+// and one effect under concurrency.
 func phaseIdempotency(t *testing.T, s *service, w *world) {
 	t.Helper()
 	const authorize = `{"orderId":"ord-idem","groupNo":1,"lines":[{"lineNo":1,"unitPriceCents":100}],"reason":"NOT_NEEDED"}`
@@ -85,15 +86,19 @@ func phaseIdempotency(t *testing.T, s *service, w *world) {
 		}
 		assertProblem(t, got.body, "idempotency-key-invalid")
 	}
-	// A 4xx is cached and replayed.
-	bad := s.send(t, http.MethodPost, "/return-authorizations",
-		`{"orderId":"ord-idem","groupNo":99,"lines":[{"lineNo":1}],"reason":"NOT_NEEDED"}`, "idem-404")
-	if bad.status != http.StatusUnprocessableEntity {
-		t.Fatalf("ghost group = %d", bad.status)
+	// A RETRYABLE refusal (the group is unknown to the view, which may lag) is NOT
+	// stored: no key row, the retry executes again and is not a replay.
+	ghost := `{"orderId":"ord-idem","groupNo":99,"lines":[{"lineNo":1}],"reason":"NOT_NEEDED"}`
+	bad := s.send(t, http.MethodPost, "/return-authorizations", ghost, "idem-404")
+	if bad.status != http.StatusUnprocessableEntity || bad.replayed != "" {
+		t.Fatalf("ghost group = %d replayed=%q", bad.status, bad.replayed)
 	}
-	if rep := s.send(t, http.MethodPost, "/return-authorizations",
-		`{"orderId":"ord-idem","groupNo":99,"lines":[{"lineNo":1}],"reason":"NOT_NEEDED"}`, "idem-404"); rep.status != bad.status || rep.replayed != "true" || rep.body != bad.body {
-		t.Fatalf("cached 4xx replay = %d replayed=%q", rep.status, rep.replayed)
+	assertProblem(t, bad.body, "group-not-shipped")
+	if c := w.db.count(`SELECT count(*) FROM idempotency_keys WHERE key='idem-404'`); c != 0 {
+		t.Fatalf("idempotency rows after a RETRYABLE refusal = %d, want 0 (the key is released)", c)
+	}
+	if again := s.send(t, http.MethodPost, "/return-authorizations", ghost, "idem-404"); again.status != bad.status || again.replayed != "" {
+		t.Fatalf("the retry of a released refusal = %d replayed=%q, want a fresh execution", again.status, again.replayed)
 	}
 	// N concurrent requests with one key: exactly one effect, the rest replay.
 	const n = 8

@@ -292,3 +292,54 @@ func TestReplayClass_ConcurrentUpdateLoserIsReleasedAndItsRetryExecutes(t *testi
 		t.Fatalf("outbox rows after the retry and its replay = %d, want %d (one cancellation event, once)", n, events+1)
 	}
 }
+
+// OUTCOME: the label request finds the authorization past its 30-day TTL. The use case cancels it
+// in place (the CANCELLED authorization and its outbox event, usecases/labels.go IssueLabel ->
+// expireAndReject -> expireLazily) and THEN refuses with 422 authorization-expired. The refusal is
+// stored AND the cancellation commits with it: after the refusal the authorization is CANCELLED
+// and the outbox holds its event, a replay answers from the key row and records nothing new, and a
+// fresh key meets a plain refusal on the now-cancelled authorization that records nothing either.
+func TestReplayClass_AuthorizationExpiredCommitsTheCancellationAndIsReplayed(t *testing.T) {
+	fx := newReplayFixture(t)
+	id := fx.authorizedDropOff(t, "ord-expiry")
+	labels := "/return-authorizations/" + id + "/labels"
+	body := `{"packageNo":1}`
+	eventsOf := func() int { return fx.count(t, `SELECT count(*) FROM outbox_events WHERE subject = $1`, id) }
+	if n := eventsOf(); n != 1 {
+		t.Fatalf("setup: outbox rows of the authorization = %d, want 1 (ReturnAuthorized)", n)
+	}
+
+	fx.clock.Advance(returnauthorization.ReturnAuthorizationTTL + time.Hour)
+	first := fx.post(labels, "expired-label", body)
+	if first.Code != http.StatusUnprocessableEntity || problemType(t, first) != "authorization-expired" {
+		t.Fatalf("first = %d %s, want 422 authorization-expired", first.Code, first.Body.String())
+	}
+	notReplayed(t, first)
+	if n := fx.count(t, `SELECT count(*) FROM return_authorizations WHERE authorization_id = $1 AND state = 'CANCELLED'`, id); n != 1 {
+		t.Fatalf("cancelled authorizations after the refusal = %d, want 1: the OUTCOME commits the lazy expiry", n)
+	}
+	if n := eventsOf(); n != 2 {
+		t.Fatalf("outbox rows after the refusal = %d, want 2 (ReturnAuthorized + ReturnCancelled)", n)
+	}
+	if n := fx.count(t, `SELECT count(*) FROM idempotency_keys WHERE key = $1 AND status_code = 422`, "expired-label"); n != 1 {
+		t.Fatalf("stored answers under the key = %d, want 1: an OUTCOME is stored", n)
+	}
+
+	for i := 0; i < 2; i++ {
+		replayOf(t, first, fx.post(labels, "expired-label", body))
+	}
+	if n := eventsOf(); n != 2 {
+		t.Fatalf("outbox rows after two replays = %d, want 2: a replay records nothing new", n)
+	}
+
+	other := fx.post(labels, "expired-label-2", body)
+	if other.Code != http.StatusConflict || problemType(t, other) != "illegal-transition" {
+		t.Fatalf("a fresh key on the cancelled authorization = %d %s, want 409 illegal-transition", other.Code, other.Body.String())
+	}
+	if n := eventsOf(); n != 2 {
+		t.Fatalf("outbox rows after the second refusal = %d, want 2: nothing new", n)
+	}
+	if n := fx.keyRows(t, "expired-label-2"); n != 0 {
+		t.Fatalf("key rows of a RETRYABLE illegal-transition = %d, want 0", n)
+	}
+}
