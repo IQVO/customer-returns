@@ -27,13 +27,18 @@ authorization. Identified by `authorizationId` (`ret-<uuid>`, minted by the serv
 stateDiagram-v2
     [*] --> AUTHORIZED: AuthorizeReturn
     AUTHORIZED --> CLOSED_KEEP: AuthorizeReturn (KEEP)
-    AUTHORIZED --> IN_TRANSIT: MarkInTransit
-    AUTHORIZED --> CANCELLED: CancelReturn
+    AUTHORIZED --> CANCELLED: CancelReturn (SHOPPER_REQUESTED or EXPIRED)
     AUTHORIZED --> RECEIVED: ApplyOutcome
+    AUTHORIZED --> IN_TRANSIT: MarkInTransit (reserved, not wired)
     IN_TRANSIT --> RECEIVED: ApplyOutcome
-    AUTHORIZED --> PICKUP_FAILED: reserved
-    IN_TRANSIT --> PICKUP_FAILED: reserved
+    AUTHORIZED --> PICKUP_FAILED: MarkPickupFailed (reserved, not wired)
 ```
+
+As built, v1 reaches only `AUTHORIZED`, `CLOSED_KEEP`, `CANCELLED` and `RECEIVED`. `MarkInTransit` and
+`MarkPickupFailed` exist in `commands.go` and are unit-tested, but no use case or adapter calls them, so `IN_TRANSIT`
+and `PICKUP_FAILED` are never reached yet: they are reserved for a transit feed and the last-mile pickup wave
+([ADR 0002](/docs/adr/0002-aggregates-and-invariants) A11). `MarkPickupFailed` is valid only from `AUTHORIZED` (a
+PICKUP authorization); there is no `IN_TRANSIT → PICKUP_FAILED` transition, and an `IN_TRANSIT` authorization cannot be cancelled.
 
 Source: `internal/domain/returnauthorization/{authorization,commands,decide,invariants}.go`.
 
@@ -54,8 +59,8 @@ The REST problem of each error is in the catalogue (`internal/adapters/inbound/h
 
 **Commands:** `AuthorizeReturn` (REST; runs `Decide`), `IssueLabel` (REST; calls the shipping context, then
 `LinkLabel`), `CancelReturn` (REST; `Cancel`), `OnOutcomeSubmitted` (Kafka consumer; `ApplyOutcome`). `MarkInTransit`
-and `MarkPickupFailed` raise no event and have no driving adapter in v1 — transit is observed, not commanded, and the
-pickup wave has not shipped ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)).
+and `MarkPickupFailed` raise no event and have no caller at all in v1 (no use case, no driving adapter) — transit is
+observed, not commanded, no transit feed is consumed yet, and the pickup wave has not shipped ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)).
 **Events:** `ReturnAuthorized`, `ReturnLabelIssued`, `ReturnCompleted`, `ReturnCancelled`.
 **Throughput:** one per returned group (a subset of all shipped groups). **Size:** one row plus its lines (JSONB).
 

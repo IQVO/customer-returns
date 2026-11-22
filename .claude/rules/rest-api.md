@@ -20,8 +20,8 @@ the caller.
   `no-return-destination`
 - `GET /return-authorizations?orderId=&cursor=&limit=` -> `ListReturnAuthorizations`
   (keyset page `{items, nextCursor}`, newest first, limit 1..100 default 20)
-- `GET /return-authorizations/{authorizationId}` -> `GetReturnAuthorization` (an expired
-  authorization is lazily cancelled by this read)
+- `GET /return-authorizations/{authorizationId}` -> `GetReturnAuthorization` (a pure read: an
+  expired authorization is answered as stored; only a command's touch cancels it, ADR 0002 A11)
 - `POST /return-authorizations/{authorizationId}/cancellations` -> `CancelReturn`
 - `POST /return-authorizations/{authorizationId}/labels` -> `IssueLabel` — body `{packageNo}`
   1..5; calls the shipping context's reverse-label route (ADR 0005) with the authorization's
@@ -40,7 +40,9 @@ the caller.
   `authorization-expired` 422), with `title`, `status`, `detail`, `instance`. An unmapped
   error is an opaque 500 `internal-error`. A new `Err` needs a catalogue row.
 - **Idempotency-Key** is required on every write (`idempotency.go`): same key + same request
-  replays the first response byte for byte, same key + other request is 409
+  replays the first response byte for byte when it is final for the request (a 2xx, or a refusal
+  whose catalogue entry declares FINAL or OUTCOME; a RETRYABLE one is released and re-executes,
+  ADR 0013; a new problem type declares its class in `errors.go`), same key + other request is 409
   `idempotency-key-reused`, a missing key is 400 `idempotency-key-required`, a malformed one
   400 `idempotency-key-invalid`; the key is GLOBAL (migration `0003`) and replays carry
   `Idempotency-Replayed: true`; keys live 24 h in `idempotency_keys`. A new write registers

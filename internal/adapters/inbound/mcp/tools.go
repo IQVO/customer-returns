@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -79,8 +81,12 @@ func (d Deps) getReturnAuthorization(ctx context.Context, in authorizationIDInpu
 }
 
 func (d Deps) listReturnAuthorizations(ctx context.Context, in listInput) (any, error) {
+	afterAt, afterID, err := listCursor(in.Cursor)
+	if err != nil {
+		return nil, err
+	}
 	page, err := d.Reads.ListReturnAuthorizations(ctx, requests.ListAuthorizations{
-		OrderID: in.OrderID, Limit: in.Limit,
+		OrderID: in.OrderID, AfterCreatedAt: afterAt, AfterID: afterID, Limit: in.Limit,
 	})
 	if err != nil {
 		return nil, mapError(ctx, err)
@@ -90,6 +96,25 @@ func (d Deps) listReturnAuthorizations(ctx context.Context, in listInput) (any, 
 		items = append(items, authorizationPayload(item))
 	}
 	return map[string]any{"items": items, "nextCursor": page.NextCursor}, nil
+}
+
+// listCursor decodes the keyset cursor exactly as GET /return-authorizations
+// does (internal/adapters/inbound/http/handlers.go): "<RFC 3339 instant>|<id>"
+// from a previous page's nextCursor, "" for the first page. A malformed cursor
+// is validation-failed, the slug REST answers with.
+func listCursor(raw string) (time.Time, returnauthorization.ID, error) {
+	if raw == "" {
+		return time.Time{}, "", nil
+	}
+	parts := strings.SplitN(raw, "|", 2)
+	if len(parts) != 2 || parts[1] == "" {
+		return time.Time{}, "", toolError("validation-failed", "cursor is malformed")
+	}
+	at, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", toolError("validation-failed", "cursor is malformed")
+	}
+	return at, returnauthorization.ID(parts[1]), nil
 }
 
 func addTool[In, Out any](

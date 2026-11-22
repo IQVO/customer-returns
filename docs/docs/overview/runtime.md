@@ -21,7 +21,10 @@ the read-only A2A agent, `DATABASE_URL` only (no Kafka, can never write), JSON-R
 `A2A_ADDR` (default `:8093`) at `/` and `/a2a`, the Agent Card at
 `/.well-known/agent-card.json` and an open `GET /healthz`. `A2A_AGENT_URL` (an
 absolute http(s) URL the card advertises) is mandatory; the chart deploys it behind
-`a2a.enabled` (default off).
+`a2a.enabled` (default off). `cmd/projector` and `cmd/reports` ([ADR 0012](/docs/adr/0012-analytics-read-side-and-return-rate-facts))
+are the fourth and fifth, both optional (chart `analytics.enabled`, default off): the projector folds this context's own
+events topic into a separate analytical database (admin `/healthz` and `/readyz` on `ADMIN_ADDR`, default `:8091`), and
+reports serves `GET /reports/*` read-only over it (`HTTP_ADDR`, default `:8092`). Neither opens the OLTP database.
 
 ## Environment
 
@@ -31,8 +34,7 @@ absolute http(s) URL the card advertises) is mandatory; the chart deploys it beh
 | `MIGRATIONS_DATABASE_URL` | `DATABASE_URL` | Direct DSN for the boot migrations (golang-migrate holds a session advisory lock, which breaks behind a transaction-pooling proxy). |
 | `KAFKA_BROKERS` | required | Comma-separated `host:port` list (relay, consumers and `/readyz`). A boot error names it when unset or blank. |
 | `ORDER_CONSUMER_GROUP`, `TOPOLOGY_CONSUMER_GROUP`, `SOURCING_CONSUMER_GROUP`, `VENDOR_CONSUMER_GROUP` | required | Stable consumer group ids of the customer-ordering, node-topology, order-sourcing and vendor-connectivity consumers. A boot error names the missing one. |
-| `SSCC_COMPANY_PREFIX` | required | The network's GS1 company prefix, 6 to 11 digits; SSCCs the network issues are built from it (ADR 0002 A5). A boot error names it when unset or invalid. |
-| `SSCC_EXTENSION_DIGIT` | `0` | Extension digit of issued SSCCs, one digit 0..9. |
+| `SHIPPING_LABELS_URL` | empty | Base URL of the shipping context's reverse-label route ([ADR 0005](/docs/adr/0005-the-reverse-label-route)); empty keeps the label client off (`422 label-unavailable`). |
 | `EVENT_PUBLISHER` | `kafka` | Only `kafka` is accepted; any other value is a boot error. |
 | `HTTP_ADDR` | `:8080` | Listen address. |
 | `OUTBOX_RELAY_INTERVAL` | `1s` | Poll interval of the relay (Go duration or seconds). |
@@ -48,7 +50,7 @@ Configuration errors are raised before anything is opened or bound.
 ## Boot and stop
 
 1. Validate the environment. 2. Run the embedded migrations and ping Postgres, both with
-backoff. 3. Start the outbox relay, the three consumers and the daily retention sweeper. 4. Serve.
+backoff. 3. Start the outbox relay, the four consumers and the daily retention sweeper. 4. Serve.
 
 On SIGINT/SIGTERM: `/readyz` flips to 503 `not_ready`, wait `SHUTDOWN_DRAIN_DELAY`, drain
 HTTP (10 s), stop and await the consumers and the loop (10 s), then the relay (10 s), close the
@@ -76,7 +78,8 @@ the orchestrator restarts it.
   then re-arm it: `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;`.
 - Consumers claim each CloudEvents id in `processed_events` in the same transaction as their
   writes. A transient failure is retried, then published to `<topic>.dlq`; a payload that can
-  never decode goes there at once. A vendor receipt for a shipment this service does not know is dead-lettered at once.
+  never decode goes there at once. A `VendorReturnOutcomeSubmitted` for an unknown or already-closed authorization is
+  recorded and acknowledged, never dead-lettered (unexpected lines stay facts, ADR 0002).
 - Idempotency keys older than 24 h are purged by the daily retention sweep (an expired key is also
   replaced on its next use).
 
@@ -89,8 +92,8 @@ the orchestrator restarts it.
 | `database.url` or `database.existingSecret` (+ `existingSecretKey`) | `DATABASE_URL` | `secretKeyRef`, never in the ConfigMap; render fails when neither is set. |
 | `database.migrationsExistingSecretKey` | `MIGRATIONS_DATABASE_URL` | `secretKeyRef` with `optional: true`; the binary falls back to `DATABASE_URL`. |
 | `kafka.brokers` | `KAFKA_BROKERS` | Required. |
-| `config.nodeConsumerGroup`, `config.catalogConsumerGroup`, `config.receiptConsumerGroup` | `NODE_`/`CATALOG_`/`RECEIPT_CONSUMER_GROUP` | Required, stable and service-prefixed (`customer-returns-node`, ...), never the pod name. |
-| `config.ssccCompanyPrefix`, `config.ssccExtensionDigit` | `SSCC_COMPANY_PREFIX`, `SSCC_EXTENSION_DIGIT` | The prefix is required (6 to 11 digits, the render fails otherwise); the extension digit is optional. |
+| `config.orderConsumerGroup`, `config.topologyConsumerGroup`, `config.sourcingConsumerGroup`, `config.vendorConsumerGroup` | `ORDER_`/`TOPOLOGY_`/`SOURCING_`/`VENDOR_CONSUMER_GROUP` | Required, stable and service-prefixed, never the pod name. |
+| `config.shippingLabelsUrl` | `SHIPPING_LABELS_URL` | Optional; empty keeps the reverse-label client off. |
 | `config.eventPublisher` | `EVENT_PUBLISHER` | Only `kafka`; `*_MODE` and a non-kafka publisher in `extraEnv` are refused. |
 | `config.outboxRelayInterval`, `shutdownDrainDelay` | the relay and drain variables | Optional; not rendered while empty so the binary default applies. `shutdownDrainDelay` takes whole seconds. |
 | `config.outboxMaxAttempts` | `OUTBOX_MAX_ATTEMPTS` | Default 20, `0` = unlimited. |

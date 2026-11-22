@@ -69,7 +69,7 @@ func (r *AuthorizationRepository) ListByOrder(ctx context.Context, orderID strin
 	for _, rw := range rows {
 		if !afterCreatedAt.IsZero() {
 			if rw.snap.AuthorizedAt.After(afterCreatedAt) ||
-				(rw.snap.AuthorizedAt.Equal(afterCreatedAt) && string(rw.snap.ID) <= string(afterID)) {
+				(rw.snap.AuthorizedAt.Equal(afterCreatedAt) && string(rw.snap.ID) >= string(afterID)) {
 				continue
 			}
 		}

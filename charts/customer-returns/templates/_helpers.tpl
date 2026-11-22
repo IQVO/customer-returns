@@ -159,6 +159,15 @@ Deployment and Service.
 {{- include "customer-returns.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "customer-returns.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "customer-returns.agentsFullname" -}}
+{{- printf "%s-agents" (include "customer-returns.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 No mode switch, no second publisher, no duplicated env: the chart renders
 otel and environment vars itself and refuses anything that would shadow it.
@@ -256,4 +265,19 @@ at render instead of crash-looping.
 {{- if not .Values.analytics.projector.consumerGroup -}}
 {{- fail "analytics.projector.consumerGroup is required (ANALYTICS_CONSUMER_GROUP): use the STABLE id customer-returns-analytics, never the pod name." -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Comma-joined names of this chart's enabled KongPlugins, for the
+konghq.com/plugins annotation on every HTTPRoute this chart renders.
+Empty string (annotation omitted) when none are enabled.
+*/}}
+{{- define "customer-returns.kongPluginNames" -}}
+{{- $names := list -}}
+{{- range $name, $cfg := .Values.kongPlugins -}}
+{{- if $cfg.enabled -}}
+{{- $names = append $names (printf "%s-%s" (include "customer-returns.fullname" $) $name) -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $names -}}
 {{- end -}}

@@ -2,7 +2,6 @@ package usecases
 
 import (
 	"context"
-	"errors"
 
 	"github.com/IQVO/customer-returns/internal/application/requests"
 	"github.com/IQVO/customer-returns/internal/application/views"
@@ -18,6 +17,9 @@ import (
 // not know yet included), the call answers 422 label-unavailable: a tolerant
 // failure, never a 500. The HTTP call runs
 // OUTSIDE the unit of work; the link itself is one atomic save+append.
+// An authorization past its TTL is cancelled in place (save + outbox event, on
+// the caller's transaction) and the call answers ErrAuthorizationExpired: a
+// refusal that COMMITTED state, the OUTCOME replay class (ADR 0013).
 func (s *Service) IssueLabel(ctx context.Context, req requests.IssueLabel) (views.ReturnAuthorization, error) {
 	if req.PackageNo < 1 || req.PackageNo > returnauthorization.MaxPackagesPerReturn {
 		return views.ReturnAuthorization{}, shared.Invalid("packageNo is outside 1..%d", returnauthorization.MaxPackagesPerReturn)
@@ -26,8 +28,15 @@ func (s *Service) IssueLabel(ctx context.Context, req requests.IssueLabel) (view
 	if err != nil {
 		return views.ReturnAuthorization{}, err
 	}
-	if expired, err := s.expireAndReject(ctx, a); expired || err != nil {
-		return views.FromAuthorization(a), errors.Join(ErrAuthorizationExpired, err)
+	expired, err := s.expireAndReject(ctx, a)
+	if err != nil {
+		// The lazy expiry could not be saved: nothing committed, so the answer is
+		// the save's own error (a lost race is a RETRYABLE 409), never the OUTCOME
+		// authorization-expired that only a committed cancellation backs.
+		return views.ReturnAuthorization{}, err
+	}
+	if expired {
+		return views.FromAuthorization(a), ErrAuthorizationExpired
 	}
 	if err := s.checkLabelable(a); err != nil {
 		return views.ReturnAuthorization{}, err

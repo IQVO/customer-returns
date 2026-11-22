@@ -13,7 +13,7 @@ Guides: `python3 scripts/harness/repo_lint.py`, `python3 scripts/harness/guide_l
 ## Layout (hexagonal)
 `internal/domain/{shared,returnauthorization,network}` pure Go; `internal/application/{ports,requests,views,usecases,outbox}`;
 `internal/adapters/inbound/{http (chi),kafka (4 consumers),mcp (read-only),a2a (read-only),requestlog}`; `internal/adapters/outbound/{postgres,kafka,outbox,labels (the ONE in-org HTTP client, ADR 0005),telemetry,clock,ids,memory}`;
-`cmd/api` (composition root), `cmd/mcp` (read-only MCP server, :8090) and `cmd/a2a` (read-only A2A agent, :8093); `features/` (godog, never a .go file at the repo root); migrations embedded in the postgres adapter (0001 schema, 0002 fleet stem, 0003 the global Idempotency-Key).
+`cmd/api` (composition root), `cmd/mcp` (read-only MCP server, :8090), `cmd/a2a` (read-only A2A agent, :8093), `cmd/projector` (analytics projector, admin :8091) and `cmd/reports` (read-only reports, :8092; both ADR 0012, default off); `features/` (godog, never a .go file at the repo root); migrations embedded in the postgres adapter (0001 schema, 0002 fleet stem, 0003 the global Idempotency-Key, 0004 node status facts).
  Agent authority: every MCP tool and A2A skill declares a level (`com.warehouse/authority` _meta / `authority:L<n>` skill tag; L1 read, L2 recommend, L3 write - ADR 0011); the MCP Streamable HTTP handler is stateless and answers the 2026-07-28 revision.
 
 ## Runtime rule

@@ -37,3 +37,10 @@ The Decision above lists `destinationPostalPrefix` in the body of the call. This
 - **The deprecated form is not used.** The provider still accepts `destinationPostalPrefix` (deprecated; exactly one of the two properties must be sent, both or neither is `422 validation-failed`). This context sends only `destinationNodeId`. The contract test R4 (`TestFieldsWeReadAreSpecified`) fails if the client's request carries a property the pinned spec deprecates.
 - **Refusals stay tolerant.** Every answer but `201` is still `ports.ErrLabelUnavailable`, i.e. `422 label-unavailable`: nothing is linked, nothing is published. That includes the provider's `409 destination-prefix-unavailable`, its answer for a node it holds no usable prefix for (the node's registration has not reached its view yet, or the registered postal code has no letter or digit). The provider does NOT store that refusal under the `Idempotency-Key`. The key stays the deterministic `<returnAuthorizationId>:<packageNo>`, so the shopper's retry is the same request with the same key, and it is executed again and served once the provider knows the node.
 - **Before the client is enabled.** The PROVIDER's node view must be filled (its ADR 0018 and runbook: a rebuild from node-topology's topic), and this context's own node-topology dead letters must have been replayed so that returns centres are ACTIVE here (ADR 0003, addendum 2026-11-17). The checklist is in this context's runbook.
+
+## Addendum 2026-11-19: "retry later with the same Idempotency-Key" is now true
+
+The Decision above says the shopper sees `422 label-unavailable` and may retry later with the same `Idempotency-Key`.
+Until [ADR 0013](./0013-idempotency-replay-classes.md) the REST middleware stored that 422 under the key for 24 hours, so
+the same-key retry replayed the refusal. `label-unavailable` is now RETRYABLE: the key is released and the retry
+executes again. Nothing about the call to the shipping context changes.

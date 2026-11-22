@@ -3,25 +3,26 @@ id: configuration
 title: Configuration
 sidebar_label: Configuration
 sidebar_position: 1
-description: "Every environment variable read by cmd/api, cmd/mcp and cmd/a2a: default, required or not, and meaning."
+description: "Every environment variable read by cmd/api, cmd/mcp, cmd/a2a, cmd/projector and cmd/reports: default, required or not, and meaning."
 ---
 
 # Configuration
 
-`customer-returns` ships **three binaries** (`cmd/api`, `cmd/mcp`, `cmd/a2a`) and each is configured only through
+`customer-returns` ships **five binaries** (`cmd/api`, `cmd/mcp`, `cmd/a2a`, `cmd/projector`, `cmd/reports`) and each is configured only through
 environment variables. There is no config file, no flag and no secret-manager integration in the repository. REST,
 MCP and A2A are unauthenticated fleet-wide, so there is no token or key to configure; access control is the
 in-cluster ClusterIP boundary.
 
-Every binary runs on real Postgres. `cmd/api` also needs real Kafka. A missing mandatory variable is a boot error that
+Every binary runs on real Postgres (`cmd/projector` and `cmd/reports` on the separate analytical database). `cmd/api`
+and `cmd/projector` also need real Kafka. A missing mandatory variable is a boot error that
 names it, raised before anything is opened or bound (`cmd/api/config.go` `loadRuntime`, `cmd/a2a/main.go`
-`validateBootConfig`). Test-only variables are not listed.
+`validateBootConfig`, `cmd/projector/main.go`, `cmd/reports/main.go`). Test-only variables are not listed.
 
 A variable read by several binaries has a row in each table with that binary's own default.
 
 ## `cmd/api`
 
-Composition root of the REST API, the three Kafka consumers, the outbox relay and the retention sweeper
+Composition root of the REST API, the four Kafka consumers, the outbox relay and the retention sweeper
 (`cmd/api/main.go`, `config.go`, `wire_adapters.go`, `wire_background.go`, `telemetry.go`).
 
 | Variable | Default | Required? | Meaning |
@@ -29,15 +30,13 @@ Composition root of the REST API, the three Kafka consumers, the outbox relay an
 | `HTTP_ADDR` | `:8080` | no | Listen address of the REST server (also serves `/healthz` and `/readyz`). |
 | `DATABASE_URL` | none | **yes** | Postgres DSN of the service pool. Missing = boot error `DATABASE_URL is required: this context runs on real Postgres, there is no in-memory mode`. |
 | `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct (non-pooled) DSN used only for the boot migrations: golang-migrate holds a session advisory lock that does not survive a transaction-pooling proxy. An empty value falls back to `DATABASE_URL`. |
-| `KAFKA_BROKERS` | none | **yes** | Comma-separated broker list (entries trimmed, blanks dropped). Used by the relay sink, the three consumers and the `/readyz` metadata check. Missing = boot error `KAFKA_BROKERS is required`. |
+| `KAFKA_BROKERS` | none | **yes** | Comma-separated broker list (entries trimmed, blanks dropped). Used by the relay sink, the four consumers and the `/readyz` metadata check. Missing = boot error `KAFKA_BROKERS is required`. |
 | `EVENT_PUBLISHER` | `kafka` | no | Only `kafka` (or empty) is accepted. `log` is a boot error (`EVENT_PUBLISHER=log is not supported`), any other value is a boot error. The variable stays because deployment manifests set it. |
 | `ORDER_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the customer-ordering consumer. Missing = boot error naming the variable. |
 | `TOPOLOGY_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the node-topology consumer. A group with no committed offset reads the topic from its earliest offset ([Runbook](/docs/operations/runbook#rebuilding-a-read-model-from-its-topic)). |
 | `SOURCING_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the order-sourcing consumer. |
 | `VENDOR_CONSUMER_GROUP` | none | **yes** | Stable consumer group id of the vendor-connectivity (return outcomes) consumer. |
 | `SHIPPING_LABELS_URL` | empty | no | Base URL of the shipping context's reverse-label route (ADR 0005). Empty keeps the label client off: a label request answers `422 label-unavailable`. Not to be set before the checklist of the [Runbook](/docs/operations/runbook#before-the-reverse-label-client-is-enabled) holds. |
-| `SSCC_COMPANY_PREFIX` | none | **yes** | The network's GS1 company prefix, 6 to 11 digits. Missing or invalid = boot error. SSCCs issued by the network are built from it. |
-| `SSCC_EXTENSION_DIGIT` | `0` | no | Extension digit of issued SSCCs, one digit 0..9. A non-numeric value or one outside 0..9 is a boot error. |
 | `OUTBOX_RELAY_INTERVAL` | `1s` | no | Pause between relay passes that did not fill a batch. A Go duration (`500ms`, `2s`) or plain seconds (`2`, `0.5`). Unparsable or non-positive values log a WARN and use the default. |
 | `OUTBOX_MAX_ATTEMPTS` | `20` | no | Failures after which the relay stops claiming an outbox row. `0` = unlimited. Negative or unparsable values log a WARN and use `20`, so a typo never removes the cap. |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | no | After SIGINT/SIGTERM, `/readyz` flips to 503 and the process waits this long before closing the listener. `0` disables it. Negative or unparsable values log a WARN and use `5s`. Read when the signal arrives. |
@@ -115,7 +114,7 @@ Optional (chart `analytics.enabled`, default off). `GET /reports/returns-perform
 
 | Setting | Value | Source |
 | --- | --- | --- |
-| HTTP `ReadHeaderTimeout` | 5 s (all three binaries) | `cmd/*/main.go` |
+| HTTP `ReadHeaderTimeout` | 5 s (every HTTP server) | `cmd/*/main.go` |
 | Graceful shutdown | HTTP drain 10 s (`shutdownTimeout`), each worker drain 10 s (`workerDrainTimeout`, api only) | `cmd/api/main.go` |
 | Postgres pool | `MaxConns` 10, `statement_timeout` set per connection | `internal/adapters/outbound/postgres/pool.go` |
 | Boot retry (migrations, first ping) | backoff retry, then the process refuses to boot | `internal/bootretry` |
@@ -123,7 +122,7 @@ Optional (chart `analytics.enabled`, default off). `GET /reports/returns-perform
 | `/readyz` dependency cache and timeout | 3 s verdict cache, 2 s per round | `internal/adapters/inbound/http/readiness.go` |
 | Idempotency-Key retention | 24 h; purged by a 24 h sweep | `internal/adapters/inbound/http/idempotency.go`, `cmd/api/main.go` (`retentionSweep`) |
 | Metric push interval | 15 s | `internal/adapters/outbound/telemetry/telemetry.go` |
-| Topics produced | `retailnetwork.customer-returns.events`, `retailnetwork.customer-returns.analytics` | `internal/adapters/outbound/kafka/encoder.go` |
+| Topics produced | `retailnetwork.customer-returns.events` (every event); `retailnetwork.customer-returns.analytics` is declared as `TopicAnalytics` but no event is published to it in v1 | `internal/adapters/outbound/kafka/encoder.go` |
 
 ## Readiness
 
@@ -136,7 +135,7 @@ sequence.
 
 - **No auth variables.** REST, MCP and A2A are unauthenticated fleet-wide.
 - **No Kafka variable on `cmd/mcp` and `cmd/a2a`.** They never dial Kafka and can never write.
-- **No scorecard threshold variables.** Tier thresholds are constants in `internal/domain/scorecard/scorecard.go`
-  ([ADR 0005](/docs/adr/0005-the-reverse-label-route)).
+- **No returnless-threshold variable.** `ReturnlessThresholdCents` (1500) and the 30-day expiry are constants of
+  `internal/domain/returnauthorization` ([ADR 0002](/docs/adr/0002-aggregates-and-invariants)).
 - **Chart values.** `charts/customer-returns` maps these variables onto the pods (`database.*`, `kafka.brokers`,
-  `config.*`, `mcp.*`, `a2a.*`); see [Runtime](/docs/overview/runtime#deployment-helm-chart).
+  `config.*`, `mcp.*`, `a2a.*`, `analytics.*`); see [Runtime](/docs/overview/runtime#deployment-helm-chart).

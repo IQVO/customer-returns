@@ -12,21 +12,21 @@ The pyramid as it stands on `develop`. Everything except `make integration` runs
 
 | Layer | Where | How many | Runs with |
 | --- | --- | --- | --- |
-| Unit (domain, application, adapters) | `internal/domain/**`, `internal/application/**`, `internal/adapters/**`, `internal/bootretry`, `cmd/*/main_test.go` | about 89 `_test.go` files, 12 of them `*_integration_test.go` | `make test` |
-| HTTP handler tests (no database) | `internal/adapters/inbound/http/*_test.go` | readiness, NUL rejection, idempotency capture, scorecard, telemetry, handlers | `make test` |
-| BDD acceptance (godog) | `features/*.feature` | **6 feature files, 47 scenarios** | `make bdd` (also part of `make test`) |
-| Integration (testcontainers) | files tagged `integration`: `cmd/api/e2e_integration_test.go`, `cmd/mcp`, `cmd/a2a`, `internal/adapters/outbound/{postgres,outbox,kafka}`, `internal/adapters/inbound/kafka` | 12 `*_integration_test.go` files | `make integration` |
-| Contract | event catalogue vs `apis/asyncapi.yaml`, MCP tool registry golden file, CloudEvents encoder/decoder, Spectral lint of both specs | see below | `make arch-test`, `make test`, CI `api-lint` |
+| Unit (domain, application, adapters) | `internal/domain/**`, `internal/application/**`, `internal/adapters/**`, `internal/bootretry`, `cmd/*/main_test.go` | 127 `_test.go` files, 20 of them `*_integration_test.go` | `make test` |
+| HTTP handler tests (no database) | `internal/adapters/inbound/http/*_test.go` | handlers, readiness, NUL rejection, idempotency capture and key, replay classes, log sanitising | `make test` |
+| BDD acceptance (godog) | `features/*.feature` | **3 feature files, 13 scenarios** | `make bdd` (also part of `make test`) |
+| Integration (testcontainers) | files tagged `integration` under `cmd/{api,mcp,a2a,projector,reports}` and `internal/adapters/{inbound/http,inbound/kafka,outbound/postgres,outbound/outbox,outbound/kafka,outbound/analyticsstore}` | 20 `*_integration_test.go` files | `make integration` |
+| Contract | pinned producer specs, event catalogue vs `apis/asyncapi.yaml`, MCP tool surface, CloudEvents encoder/decoder, Spectral lint of both specs | see below | `make test`, `make arch-test`, CI `pinned-contracts`, `api-lint` |
 | Mutation | `internal/domain/**` with gremlins | thresholds in `.gremlins.yaml` | `make mutation`, `make mutation-full` |
-| Architecture fitness | `internal/architecture/` | 12 test files, 31 `Test*` functions | `make arch-test` |
+| Architecture fitness | `internal/architecture/` | 16 test files, 43 `Test*` functions | `make arch-test` |
 
 ## Unit and use-case tests
 
-The domain packages (`inboundplan`, `inboundshipment`, `seller`, `scorecard`, `network`, `shared`, `shared/gs1`) have
-table tests for every invariant; `internal/application/usecases` has `flow_test.go` (a shipment from onboarding to
-receipt on in-memory test doubles), `consumers_test.go`, `scorecard_test.go` and `shipment_metrics_test.go`. The
-in-memory store under `internal/adapters/outbound/memory` exists for tests only: a fitness test
-(`TestRuntimeBinaryHasNoInMemoryAdapters`) fails if any `cmd/**` binary imports it.
+The domain packages (`returnauthorization`, `network`, `returnsperformance`, `shared`) have table tests for every
+invariant and for `decide`; `internal/application/usecases` has `labels_test.go`, `labels_expiry_test.go`,
+`cancel_expiry_test.go` and the use-case coverage tests on in-memory test doubles. The in-memory store under
+`internal/adapters/outbound/memory` exists for tests only: a fitness test (`TestRuntimeBinaryHasNoInMemoryAdapters`)
+fails if any `cmd/**` binary imports it.
 
 `make coverage` runs the whole suite with the race detector and enforces a **90 % gate** over
 `./internal/domain/...` and `./internal/application/...` (`COVERAGE_PKGS` and `COVERAGE_THRESHOLD` in the `Makefile`;
@@ -36,17 +36,15 @@ CI runs the same target, so the scope cannot drift).
 
 | File | Scenarios |
 | --- | --- |
-| `features/sellers.feature` | 9 |
-| `features/inbound_plans.feature` | 9 |
-| `features/shipments_and_labels.feature` | 13 |
-| `features/receipts.feature` | 6 |
-| `features/scorecard.feature` | 8 |
-| `features/node_limits.feature` | 2 |
-| **Total** | **47** |
+| `features/authorize_returns.feature` | 4 |
+| `features/transit.feature` | 3 |
+| `features/returns_performance.feature` | 6 |
+| **Total** | **13** |
 
-The steps (`features/steps_test.go`, `features/features_test.go`) drive the real use cases and the real REST router over
-in-memory adapters, and feed the consumers with CloudEvents built from the producers' contracts (node-topology,
-offer-availability, vendor-connectivity). Run them alone with `make bdd` (`go test ./... -run TestFeatures -v`).
+The steps (`features/steps_test.go`, `features/analytics_steps_test.go`, `features/features_test.go`) drive the real use
+cases and the real REST router over in-memory adapters, and feed the consumers with CloudEvents built from the
+producers' contracts (customer-ordering, node-topology, order-sourcing, vendor-connectivity). Run them alone with
+`make bdd` (`go test ./... -run TestFeatures -v`).
 
 ## Integration tests
 
@@ -55,10 +53,12 @@ own Postgres and Kafka with testcontainers, so there is no `DATABASE_URL`, no do
 fitness tests enforce this (`TestPostgresIntegrationTestsUseTestcontainers`, `TestKafkaIntegrationTestsUseTestcontainers`).
 
 - `cmd/api/e2e_integration_test.go` starts the real `run` entry point against the containers and walks the REST API,
-  the three consumers and the relay end to end.
-- `cmd/mcp` and `cmd/a2a` have their own `main_integration_test.go`.
-- `internal/adapters/outbound/postgres` covers the repositories, the scorecard tables, and that an outbox row written
-  under a span stores its `traceparent`.
+  the four consumers and the relay end to end; `labels_stub_integration_test.go` runs it against a reverse-label stub
+  and `idempotency_integration_test.go` the `Idempotency-Key` paths.
+- `cmd/mcp`, `cmd/a2a`, `cmd/projector` and `cmd/reports` have their own `main_integration_test.go`.
+- `internal/adapters/outbound/postgres` covers the repositories, the inbox contract, and that an outbox row written
+  under a span stores its `traceparent`; `outbound/analyticsstore` the analytical store against real Postgres;
+  `inbound/http` the idempotency poison path and the replay classes.
 - `internal/adapters/outbound/outbox` covers the relay and the attempt cap; `outbound/kafka` the sink and writers;
   `inbound/kafka` the consumers and dead-lettering.
 
@@ -71,13 +71,13 @@ fitness tests enforce this (`TestPostgresIntegrationTestsUseTestcontainers`, `Te
 - `TestEventCatalogueMatchesContract` (`internal/architecture/catalogue_fitness_test.go`, a fleet-managed file) checks
   that every `com.warehouse.(wms|wes).<service>...` or `com.retailnetwork.<domain>.<service>...` type that
   `apis/asyncapi.yaml` declares for this module appears in the ADR catalogue. customer-returns's types are
-  `com.retailnetwork.partner.customer-returns...`; its nine published types are checked against ADR 0004, and the types
+  `com.retailnetwork.commerce.customer-returns...`; its four published types are checked against ADR 0004, and the types
   it only consumes (other services' segments) are not required there. `TestEventCatalogueDetector` pins both type
   shapes. A new event still changes the domain struct, `apis/asyncapi.yaml` and the ADR 0004 `type:` line in one commit
   (CLAUDE.md); the test now fails the build if the ADR line is missing.
-- `TestToolRegistryGolden` and `TestToolSurface` (`internal/adapters/inbound/mcp/governance_test.go`) pin the MCP tools
-  to `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`; refresh it with `go test ./internal/adapters/inbound/mcp -update`
-  and review the diff. The same file checks that no tool name is a write verb.
+- `TestToolSurface` (`internal/adapters/inbound/mcp/governance_test.go`) pins the two MCP tools and, with
+  `TestWriteVerbSensorFailsOnWriteNames`, that no tool name is a write verb; `TestEveryToolIsReadOnlyAnnotatedL1` pins
+  the annotations and authority. There is no golden registry file.
 - `internal/adapters/kafka/cloudevents/cloudevents_test.go` and `internal/adapters/outbound/kafka/encoder_test.go`
   pin the CloudEvents envelope.
 - CI `api-lint` runs Spectral on `apis/openapi.yaml` (`.spectral.yaml`) and `apis/asyncapi.yaml`
@@ -85,10 +85,11 @@ fitness tests enforce this (`TestPostgresIntegrationTestsUseTestcontainers`, `Te
 
 ## Mutation testing
 
-`.gremlins.yaml` sets one worker, timeout coefficient 30, and thresholds **efficacy 99** and **mutant-coverage 99**.
-The file records the last measurement: every domain package except `inboundshipment` at 100 %; `inboundshipment` at
-99.23 % with one equivalent surviving mutant (`receipt.go:195`, the receipt normalisation already drops zero-quantity
-items). `make mutation` runs gremlins on `internal/domain/inboundshipment` (the fast subset); `make mutation-full` on all of `internal/domain`.
+`.gremlins.yaml` sets one worker, timeout coefficient 30, and thresholds **efficacy 99** and **mutant-coverage 97**.
+The file records the last measurement (2026-11-15): `network` and `shared` at 100 % / 100 %; `returnauthorization` 88
+killed, 0 lived, 2 not covered (efficacy 100 %, mutator coverage 97.78 %). `make mutation` runs gremlins on
+`internal/domain/returnauthorization` (the fast subset); `make mutation-full` on all of `internal/domain`; the CI
+`mutation-fast` job loops over every package under `internal/domain`.
 gremlins is pinned to v0.6.0.
 
 ## Architecture fitness tests
@@ -108,12 +109,14 @@ rule fails on a bad fixture.
 | Consumer group ids come from configuration, never a literal | `TestKafkaConsumerGroupNeverHardcodedInline` |
 | Kafka writers set `RequiredAcks`; a writer and its message never both set a topic; dead-letter calls guard cancellation | `TestKafkaWritersSetRequiredAcks`, `TestKafkaWriterTopicNotSetTwice`, `TestDeadLetterCallsGuardCancellation` |
 | Every outbox relay passes the attempt cap | `TestOutboxRelaysPassAttemptCap` |
+| Every MCP tool and A2A skill declares an authority level; write tools are at least L3 | `TestEveryMCPToolDeclaresAuthority`, `TestA2ASkillsDeclareAuthority`, `TestMCPWriteToolsAreAtLeastL3` |
+| No PII-shaped identifier anywhere; `reason` stays an enum | `TestNoPIIShapedIdentifiersAnywhere`, `TestReasonStaysAnEnum` |
+| The analytics read side is self-contained | `TestAnalyticsReadSideArchitecture` |
 | MCP optional inputs carry `omitempty` | `TestMCPOptionalToolInputsCarryOmitempty` |
 | Integration tests use testcontainers | `TestPostgresIntegrationTestsUseTestcontainers`, `TestKafkaIntegrationTestsUseTestcontainers` |
 
-Known discrepancy: `internal/architecture/architecture_test.go:23` sets `modulePath = "github.com/IQVO/customer-returns"`
-while `go.mod` declares `module github.com/IQVO/customer-returns`. Whether the arch-go rules of
-`TestHexagonalArchitecture` resolve packages under the `go.mod` path was not verified for this page.
+`modulePath` in `internal/architecture/architecture_test.go` equals the `module` line of `go.mod`
+(`github.com/IQVO/customer-returns`), as the arch-go rules require.
 
 ## Make targets
 
@@ -152,7 +155,7 @@ Triggers: push and pull request on `main` and `develop`, a weekly Monday schedul
 | `helm-lint` | `ct lint` and the Service selector test | pull requests only |
 | `chart-tests` | every `charts/customer-returns/tests/*.sh` and `test_*.py` | blocking |
 | `arch-test` | fitness tests | blocking |
-| `web` | the Module Federation remote: lint, `tsc -b`, vitest, build | blocking |
+| `pinned-contracts` | the consumer contract tests against the producers' pinned specs (`contracts/pinned.json`) | blocking |
 | `docker-publish`, `release` | image, cosign signature, SBOM, Helm chart, tag | push to `main` only, after the jobs above |
 
 `docs.yml` builds this site on pull requests and deploys it on a push to `main`. The CI has no trivy scan and no

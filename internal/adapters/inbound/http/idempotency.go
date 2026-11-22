@@ -67,10 +67,13 @@ type TxBinder func(ctx context.Context, tx pgx.Tx) context.Context
 //   - The wrapped handler runs with the transaction bound into its context
 //     (TxBinder), so the idempotency row, the plan and its outbox rows commit
 //     or roll back together.
-//   - Every normal response below 500 is cached, 4xx included: the same key
-//     and body replays the same answer (for an asynchronous write, the same
-//     transactionId), a different method, path or body is 409 idempotency-key-reused. A 5xx or a panic rolls everything back and is
-//     never cached, so the same key can retry the real work.
+//   - A 2xx is cached and so is a refusal that is final for the request: the
+//     same key and body replays the same answer, a different method, path or
+//     body is 409 idempotency-key-reused. Which refusal is final is the replay
+//     class its problem type declares (FINAL and OUTCOME are cached; RETRYABLE
+//     is released; ADR 0013). A 5xx, a panic, a RETRYABLE refusal and a refusal
+//     with no class roll everything back, key row included, and are never
+//     cached, so the same key can retry the real work.
 func RequireIdempotencyKey(pool *pgxpool.Pool, bind TxBinder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +211,9 @@ type capture struct {
 	header http.Header
 	code   int
 	body   bytes.Buffer
+	// class is the replay class of the problem the handler answered with
+	// (replay_class.go); "" for a success and for an answer that declared none.
+	class replayClass
 }
 
 func (c *capture) Header() http.Header { return c.header }
@@ -255,9 +261,11 @@ func runFreshRequest(ctx context.Context, w http.ResponseWriter, r *http.Request
 	if rec.code == 0 {
 		rec.code = http.StatusOK
 	}
-	if rec.code >= http.StatusInternalServerError {
-		// A server failure is never cached: roll everything back so the same
-		// key can retry the real work.
+	if !rec.storable() {
+		// An answer that is not final for the request is released: roll
+		// everything back, key row included, so the same key executes again.
+		// That is a 5xx (never cached), a refusal whose problem type declares
+		// RETRYABLE and a refusal that declares no class (replay_class.go).
 		_ = tx.Rollback(ctx)
 		flush(w, rec)
 		return
@@ -272,9 +280,11 @@ func runFreshRequest(ctx context.Context, w http.ResponseWriter, r *http.Request
 			writeError(w, r, err)
 			return
 		}
-		if rec.code < http.StatusBadRequest {
+		if rec.code < http.StatusBadRequest || rec.class == classOutcome {
 			// A success answer whose writes cannot be committed must neither
-			// be returned nor cached: fail the request so the key retries.
+			// be returned nor cached, and neither must an OUTCOME refusal,
+			// whose whole point is that its writes commit with it: fail the
+			// request so the key retries.
 			_ = tx.Rollback(ctx)
 			writeError(w, r, err)
 			return

@@ -7,9 +7,6 @@ import (
 	"strings"
 )
 
-// notFoundResource is the 404 of a request path that can never name a resource.
-var notFoundResource = problem{status: http.StatusNotFound, slug: "not-found", title: "Not found"}
-
 // rejectNUL turns a NUL character in a request into a client error before it
 // can reach a Postgres text parameter. PostgreSQL text cannot hold U+0000, and
 // a statement that carries one aborts the surrounding transaction (SQLSTATE
