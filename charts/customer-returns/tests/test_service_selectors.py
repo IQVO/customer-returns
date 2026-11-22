@@ -67,6 +67,13 @@ ENABLE_A2A = BASE + [
     "--set", "a2a.enabled=true",
     "--set", "a2a.route.enabled=true",
 ]
+# agents.colocate (warehouse-infra ADR 0012, capacity step 3): mcp and a2a as two containers of ONE
+# customer-returns-agents Deployment; both Services select it.
+ENABLE_AGENTS = BASE + [
+    "--set", "mcp.enabled=true", "--set", "mcp.route.enabled=true",
+    "--set", "a2a.enabled=true", "--set", "a2a.route.enabled=true",
+    "--set", "agents.colocate=true",
+]
 # The analytics read side (ADR 0012): the projector and the reports pods.
 ENABLE_ANALYTICS = BASE + [
     "--set", "analytics.enabled=true",
@@ -291,6 +298,30 @@ def check_a2a(docs: list[dict], failures: list[str]) -> None:
                 failures.append(f"the a2a HTTPRoute must rewrite its prefix to /, got {rewrite}")
 
 
+def check_agents(docs: list[dict], failures: list[str]) -> None:
+    """agents.colocate: the api and ONE agents Deployment (component=agents, containers mcp + a2a); the mcp
+    and a2a Services both select exactly that Deployment, the api Service only the api."""
+    agents = f"{RELEASE}-agents"
+    services = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Service"}
+    deployments = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Deployment"}
+    if set(deployments) != {RELEASE, agents}:
+        failures.append(f"with agents.colocate: expected exactly the api and agents Deployments, got {sorted(deployments)}")
+    if set(services) != {RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-a2a"}:
+        failures.append(f"with agents.colocate: expected the api, mcp and a2a Services, got {sorted(services)}")
+    for svc_name, svc in services.items():
+        hit = [d for d, dep in deployments.items() if matches(selector_of(svc), pod_labels_of(dep))]
+        want = [RELEASE] if svc_name == RELEASE else [agents]
+        if hit != want:
+            failures.append(f"with agents.colocate: Service {svc_name} selects {sorted(hit)}; expected {want}")
+    dep = deployments.get(agents)
+    if dep is not None:
+        if dep["spec"]["selector"].get("matchLabels", {}).get("app.kubernetes.io/component") != "agents":
+            failures.append("the agents Deployment selector.matchLabels must pin component=agents")
+        names = sorted(c["name"] for c in dep["spec"]["template"]["spec"]["containers"])
+        if names != ["a2a", "mcp"]:
+            failures.append(f"the agents Deployment must run the containers a2a and mcp, got {names}")
+
+
 def check_analytics(docs: list[dict], failures: list[str]) -> None:
     """The analytics read side (ADR 0012): the projector (no Service) and the reports (Service
     component=analytics-reports, :80), their own binaries and env, and the reports route."""
@@ -379,6 +410,7 @@ def main() -> int:
     check_components(render(ENABLE_EVERYTHING), failures)
     check_mcp(render(ENABLE_MCP), failures)
     check_a2a(render(ENABLE_A2A), failures)
+    check_agents(render(ENABLE_AGENTS), failures)
     check_analytics(render(ENABLE_ANALYTICS), failures)
 
     # Default values must not deploy an HPA, a route, an Ingress, the mcp or
@@ -391,6 +423,8 @@ def main() -> int:
         failures.append("the mcp component must not render with default values (mcp.enabled=false)")
     if any(d.get("metadata", {}).get("name", "").endswith("-a2a") for d in defaults):
         failures.append("the a2a component must not render with default values (a2a.enabled=false)")
+    if any(d.get("metadata", {}).get("name", "").endswith("-agents") for d in defaults):
+        failures.append("the agents Deployment must not render with default values (agents.colocate=false)")
     if any(d.get("metadata", {}).get("name", "").endswith(("-projector", "-reports")) for d in defaults):
         failures.append("the analytics components must not render with default values (analytics.enabled=false)")
 
@@ -403,7 +437,8 @@ def main() -> int:
 
     print("PASS: the api Service selects exactly one Deployment (component=api) and so does the mcp Service "
           "(component=mcp, ADR 0006, with exactly the env cmd/mcp reads), the a2a Service (component=a2a, ADR 0009, "
-          "with exactly the env cmd/a2a reads and no Kafka env) and the frontend Service "
+          "with exactly the env cmd/a2a reads and no Kafka env; with agents.colocate both select the one agents Deployment) "
+          "and the frontend Service "
           "(component=frontend, ADR 0007, ClusterIP, no env, never routed by this chart) and the analytics-reports Service "
           "(component=analytics-reports, ADR 0012; analytics-projector has no Service, both run their own binary with their own env "
           "and the reports route outranks the API route); the HPA, Ingress, "
