@@ -159,6 +159,15 @@ Deployment and Service.
 {{- include "customer-returns.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "customer-returns.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "customer-returns.agentsFullname" -}}
+{{- printf "%s-agents" (include "customer-returns.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 No mode switch, no second publisher, no duplicated env: the chart renders
 otel and environment vars itself and refuses anything that would shadow it.
