@@ -1,0 +1,35 @@
+# customer-returns 0.1.6 (v0.1.6, fb504b5) - System Assets & Interaction Standard v0.4
+apiVersion: warehouse/application/v1
+application:
+  id: customer-returns
+  name: Customer Returns
+  kind: bounded-context
+  version: 0.1.6
+  description: Customer Returns - the shopper-facing return authorization of the retail network (ReturnAuthorization
+    with its disposition at authorization); publishes events on retailnetwork.customer-returns.events
+  repository: https://github.com/IQVO/customer-returns
+  owners:
+  - claudioed
+  lifecycle: production
+subdomain:
+  id: retail-network
+  name: Retail Network
+  summary: 'The retail fulfillment network: a separate organization owning the customer, the catalogue,
+    the delivery promise, order sourcing and the parcel network.'
+boundedContext:
+  id: customer-returns
+  name: Customer Returns
+  classification: Supporting
+  tier: Retail Network, commerce tier
+  purpose: 'The shopper-facing return authorization of the retail network: a return is authorized with
+    its disposition decided at authorization (KEEP returnless below a caller-declared threshold, NEAREST_RETURNS_CENTER,
+    ORIGIN_NODE), the reverse label comes from shipping-and-tracking, returns-processing receives the
+    advices and grades the outcome, and offer-availability restocks the sellable units. Fees are recorded
+    as facts, never money; doorstep pickup is dormant until last-mile carries it.'
+  publishes:
+  - retailnetwork.customer-returns.events
+tags:
+- return-authorization
+- report
+assets: system-assets.yaml
+interactions: interactions.yaml

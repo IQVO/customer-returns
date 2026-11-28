@@ -1,0 +1,47 @@
+{
+  "supportedInterfaces": [
+    {
+      "url": "http://customer-returns-a2a.warehouse-systems.svc.cluster.local:8093/",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "description": "Customer Returns agent of the retail network (read-only): the shopper-facing front door for returning goods. It answers where one return stands (the authorization with its disposition, method, state, lines, reverse labels and expiry). It never changes data: authorizing, cancelling and linking labels stay on the REST API.",
+  "name": "customer-returns",
+  "provider": {
+    "organization": "IQVO",
+    "url": "https://github.com/IQVO/customer-returns"
+  },
+  "skills": [
+    {
+      "description": "Answer one return authorization as this service recorded it: the order and group, the reason code, the disposition decided at authorization (KEEP returnless, NEAREST_RETURNS_CENTER or ORIGIN_NODE), the method (DROP_OFF, or PICKUP while dormant), the state (AUTHORIZED, IN_TRANSIT, RECEIVED, CLOSED_KEEP, CANCELLED, PICKUP_FAILED), the authorized lines with the caller-declared prices and owner refs, the linked reverse-label tracking numbers, the expiry (authorizedAt + 30d) and pricesAbsent. Arguments: authorizationId (required). Answers a 404 problem for an unknown id. Persists nothing.",
+      "examples": [
+        "{\"skill\":\"get_return_authorization\",\"arguments\":{\"authorizationId\":\"ret-0f3a91\"}}"
+      ],
+      "id": "get_return_authorization",
+      "inputModes": [
+        "application/json"
+      ],
+      "name": "Read one return authorization",
+      "tags": [
+        "return",
+        "authorization",
+        "read",
+        "authority:L1"
+      ]
+    }
+  ],
+  "version": "fb504b5-arm64"
+}

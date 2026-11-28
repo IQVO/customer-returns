@@ -1,0 +1,86 @@
+{
+  "apiVersion": "warehouse/mcp-primitives/v1",
+  "server": "com.retailnetwork.commerce/customer-returns",
+  "tools": [
+    {
+      "_meta": {
+        "com.warehouse/authority": "L1"
+      },
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one return authorization: the order and group it belongs to, the reason code, the disposition decided at authorization (KEEP returnless, NEAREST_RETURNS_CENTER or ORIGIN_NODE), the method (DROP_OFF, or PICKUP while that slice is dormant), the state (AUTHORIZED, IN_TRANSIT, RECEIVED, CLOSED_KEEP, CANCELLED, PICKUP_FAILED), the authorized lines with the caller-declared unit prices and owner refs, the linked reverse-label tracking numbers, the expiry (authorizedAt + 30d) and pricesAbsent (true when a price was absent, so KEEP could never be chosen). Read-only; an unknown id fails with not-found.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "authorizationId": {
+            "type": "string",
+            "description": "the return authorization id, e.g. ret-0f3a91"
+          }
+        },
+        "required": [
+          "authorizationId"
+        ],
+        "additionalProperties": false
+      },
+      "name": "get_return_authorization"
+    },
+    {
+      "_meta": {
+        "com.warehouse/authority": "L1"
+      },
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List a customer order's return authorizations, newest first, keyset-paged (nextCursor of a page feeds the next call's cursor). Every item is the same shape as get_return_authorization. Read-only; orderId is required.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "the order whose return authorizations to list, e.g. ord-51a0c9"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "optional keyset cursor from the previous page's nextCursor; omitted means the first page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "optional page size, 1..100; omitted means 20"
+          }
+        },
+        "required": [
+          "orderId"
+        ],
+        "additionalProperties": false
+      },
+      "name": "list_return_authorizations"
+    }
+  ],
+  "resources": [],
+  "resourceTemplates": [
+    {
+      "description": "One return authorization: disposition, method, state, lines with prices and owner refs, linked reverse labels, expiry.",
+      "mimeType": "application/json",
+      "name": "return-authorization",
+      "uriTemplate": "warehouse://customer-returns/return-authorizations/{authorizationId}"
+    }
+  ],
+  "prompts": [
+    {
+      "arguments": [
+        {
+          "name": "authorizationId",
+          "description": "the return authorization id to review, e.g. ret-0f3a91",
+          "required": true
+        }
+      ],
+      "description": "Standard operating procedure for reviewing one return authorization: read the authorization and its order's history, interpret the disposition and state, and know when to escalate to the human returns operator.",
+      "name": "review_return_authorization"
+    }
+  ]
+}
