@@ -1,0 +1,20 @@
+{
+  "name": "com.retailnetwork.commerce/customer-returns",
+  "version": "0.1.6",
+  "title": "Customer Returns MCP",
+  "description": "The shopper-facing return authorization of the retail network: a return is authorized with its disposition decided at authorization (KEEP returnless below a caller-declared threshold, NEAREST_RETURNS_CENTER, ORIGIN_NODE), the reverse label comes from shipping-and-tracking, returns-processing receives the advices and grades the outcome, and offer-availability restocks the sellable units.",
+  "websiteUrl": "https://iqvo.github.io/customer-returns/",
+  "repository": {
+    "url": "https://github.com/IQVO/customer-returns",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "http://localhost:8010/api/mcp/customer-returns",
+      "protocolVersions": [
+        "2026-07-28"
+      ]
+    }
+  ]
+}

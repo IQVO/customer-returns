@@ -1,0 +1,176 @@
+# customer-returns 0.1.6 (v0.1.6, fb504b5) - System Assets & Interaction Standard v0.4
+# Interactions of customer-returns (STANDARD.md Part B): every call this
+# context MAKES (technology + operation + business) and every event it consumes.
+#
+# One synchronous call: IssueLabel -> shipping-and-tracking POST /return-labels
+# (the ONE in-org call of this context, ADR 0005; runs outside the unit of work).
+# The MCP server and the A2A agent are read-only (get/list return authorization)
+# and call no sibling. Use cases here are the methods of the single
+# usecases.Service type (internal/application/usecases has no other exported
+# struct or interface); the interaction ids name the method.
+# All four published events leave on retailnetwork.customer-returns.events
+# through the transactional outbox (no analytics channel at v0.1.6).
+apiVersion: warehouse/interactions/v1
+application: application.yaml
+
+interactions:
+
+  # --- IssueLabel: the context's only outbound call
+  - id: issue-label-call-issue-return-label
+    technology: rest
+    operation:
+      asset: shipping-and-tracking/openapi
+      id: issueReturnLabel
+      effect: write
+      rest: { method: POST, path: /return-labels }
+    business:
+      capability: returns.reverse-label
+      process: return-label-issuance
+      useCase: Service
+      triggers:
+        - { kind: api, via: rest, ref: issueReturnLabel, actor: "human:shopper" }
+      purpose: Ask the shipping context for the shopper's reverse label to the authorization's destination node (outside the unit of work), then link the tracking number to the return authorization.
+      criticality: blocking
+      onFailure: the shopper gets 422 label-unavailable and no label is linked until a later issue succeeds
+
+  # --- AuthorizeReturn
+  - id: authorize-return-publish-return-authorized
+    technology: event.publish
+    operation:
+      asset: customer-returns/asyncapi
+      id: publishCustomerReturnsEvents
+      effect: write
+      event: { channel: retailnetwork.customer-returns.events, type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnAuthorized }
+    business:
+      capability: returns.return-authorization
+      process: return-authorization
+      useCase: Service
+      triggers:
+        - { kind: api, via: rest, ref: authorizeReturn, actor: "human:shopper" }
+      purpose: Announce that a return of one shipped or delivered order group was authorized with its disposition (KEEP included), method, lines and expiry.
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  # --- IssueLabel
+  - id: issue-label-publish-return-label-issued
+    technology: event.publish
+    operation:
+      asset: customer-returns/asyncapi
+      id: publishCustomerReturnsEvents
+      effect: write
+      event: { channel: retailnetwork.customer-returns.events, type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnLabelIssued }
+    business:
+      capability: returns.reverse-label
+      process: return-label-issuance
+      useCase: Service
+      triggers:
+        - { kind: api, via: rest, ref: issueReturnLabel, actor: "human:shopper" }
+      purpose: Announce that the shipping context issued a reverse label for a package of the return and that its tracking number is linked.
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  # --- OnOutcomeSubmitted
+  - id: on-outcome-submitted-publish-return-completed
+    technology: event.publish
+    operation:
+      asset: customer-returns/asyncapi
+      id: publishCustomerReturnsEvents
+      effect: write
+      event: { channel: retailnetwork.customer-returns.events, type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCompleted }
+    business:
+      capability: returns.return-outcome
+      process: return-outcome-completion
+      useCase: Service
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted, actor: system }
+      purpose: Announce the graded outcome (restockable and unsellable quantities of the authorized lines) that completes the authorization as RECEIVED.
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  # --- CancelReturn, plus the lazy expiry (no sweeper, ADR 0002) on the next touch
+  - id: cancel-return-publish-return-cancelled
+    technology: event.publish
+    operation:
+      asset: customer-returns/asyncapi
+      id: publishCustomerReturnsEvents
+      effect: write
+      event: { channel: retailnetwork.customer-returns.events, type: com.retailnetwork.commerce.customer-returns.returnauthorization.ReturnCancelled }
+    business:
+      capability: returns.return-authorization
+      process: return-cancellation
+      useCase: Service
+      triggers:
+        - { kind: api, via: rest, ref: cancelReturn, actor: "human:shopper" }
+        - { kind: api, via: rest, ref: issueReturnLabel, actor: "human:shopper" }
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted, actor: system }
+      purpose: Announce that an authorization was cancelled, by the shopper's request or by the lazy expiry (authorizedAt + 30d) found when a later command touched it.
+      criticality: best-effort
+      onFailure: outbox-retry
+
+subscriptions:
+
+  - id: consume-customer-ordering-order-group-events
+    operation:
+      asset: customer-ordering/asyncapi    # pinned: contracts/customer-ordering.asyncapi.yaml
+      id: publishCustomerOrderingEvents
+      consumerOperation: receiveCustomerOrderingEvents
+      event:
+        channel: retailnetwork.customer-ordering.events
+        types:
+          - com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced
+          - com.retailnetwork.commerce.customer-ordering.order.ShopperNoticeDecided
+    business:
+      capability: returns.order-group-view
+      process: return-authorization
+      projection: GroupViewRepository
+      purpose: Keep the local OrderGroupView of placed order groups and their shipped, delivered, lost or returned status; only a SHIPPED or DELIVERED group is authorizable (ADR 0003).
+
+  - id: consume-node-topology-returns-network-events
+    operation:
+      asset: node-topology/asyncapi    # pinned: contracts/node-topology.asyncapi.yaml
+      id: publishNodeTopologyEvents
+      consumerOperation: receiveNodeTopologyEvents
+      event:
+        channel: retailnetwork.node-topology.events
+        types:
+          - com.retailnetwork.logistics.node-topology.node.NodeRegistered
+          - com.retailnetwork.logistics.node-topology.node.NodeActivated
+          - com.retailnetwork.logistics.node-topology.node.NodeSuspended
+          - com.retailnetwork.logistics.node-topology.node.NodeRetired
+          - com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned
+    business:
+      capability: returns.returns-network-view
+      process: return-disposition-decision
+      projection: NetworkViewRepository
+      purpose: Keep the node and postal-prefix halves of the ReturnsNetworkView so the disposition can pick the region's ACTIVE returns centre.
+
+  - id: consume-order-sourcing-fulfillment-origin-events
+    operation:
+      asset: order-sourcing/asyncapi    # pinned: contracts/order-sourcing.asyncapi.yaml
+      id: publishOrderSourcingEvents
+      consumerOperation: receiveOrderSourcingEvents
+      event:
+        channel: retailnetwork.order-sourcing.events
+        types:
+          - com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode
+          - com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked
+    business:
+      capability: returns.returns-network-view
+      process: return-disposition-decision
+      projection: NetworkViewRepository
+      purpose: Keep the origin half of the ReturnsNetworkView, the node that fulfilled each group and the per-item stock owners, for the ORIGIN_NODE disposition and the ownerRef on lines.
+
+  - id: consume-vendor-connectivity-return-outcome-events
+    operation:
+      asset: vendor-connectivity/asyncapi    # pinned: contracts/vendor-connectivity.asyncapi.yaml
+      id: publishVendorConnectivityEvents
+      consumerOperation: receiveVendorConnectivityEvents
+      event:
+        channel: retailnetwork.vendor-connectivity.events
+        types:
+          - com.retailnetwork.partner.vendor-connectivity.returnoutcome.VendorReturnOutcomeSubmitted
+    business:
+      capability: returns.return-outcome
+      process: return-outcome-completion
+      useCases: [Service]
+      purpose: Complete the first fitting open authorization from the returns centre's graded outcome; lines beyond the authorization and outcomes for unknown or closed authorizations are recorded as facts only.
